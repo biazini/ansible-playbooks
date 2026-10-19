@@ -14,7 +14,11 @@
 
 - name: Verify | localectl shows the configured layout
   ansible.builtin.assert:
-    that: _base_localectl.stdout is search('X11 Layout:\s+' ~ base_keyboard_layout ~ '\b')
+    # Compare the value of the "X11 Layout:" line. No regex here: inside a
+    # Jinja string '\b' becomes a backspace character, not a word boundary.
+    that: >-
+      (_base_localectl.stdout_lines | select('search', 'X11 Layout') | first | default('')
+       | split(':') | last | trim) == base_keyboard_layout
     fail_msg: "localectl does not report layout {{ base_keyboard_layout }}: {{ _base_localectl.stdout }}"
     quiet: true
   when:
