@@ -37,3 +37,28 @@
     masked: true
     state: stopped
   failed_when: false
+
+# CIS "Ensure automatic error reporting is not enabled". Apport also writes
+# fs.suid_dumpable=2 every time it starts, overriding the CIS sysctl (0).
+- name: Packages | Is apport installed
+  ansible.builtin.stat:
+    path: /etc/default/apport
+  register: _cis_apport
+
+- name: Packages | Automatic error reporting (apport) disabled
+  when:
+    - cis_disable_apport | bool
+    - _cis_apport.stat.exists
+  block:
+    - name: Packages | Apport off in /etc/default/apport
+      ansible.builtin.lineinfile:
+        path: /etc/default/apport
+        regexp: '^enabled='
+        line: enabled=0
+
+    - name: Packages | Apport service stopped and disabled
+      ansible.builtin.systemd_service:
+        name: apport.service
+        enabled: false
+        state: stopped
+      notify: Apply sysctl

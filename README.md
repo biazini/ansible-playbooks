@@ -48,6 +48,7 @@ Recommended: **this role (or USG) to remediate, a different tool to audit.**
 | AIDE | Baseline built inside the template | Never initialised when `cis_template_build=true`; init at first config run |
 | sysctl | `ip_forward=0` on k8s/container hosts; `rp_filter=1` on multi-homed VMs; `accept_ra=0` with SLAAC | `cis_is_router`, `cis_rp_filter`, `cis_ipv6_accept_ra` |
 | sysctl | ufw re-applies `/etc/ufw/sysctl.conf` and overrides CIS values | `IPT_SYSCTL` pointed at `/etc/sysctl.d/60-cis.conf` |
+| sysctl | apport (crash reporter) writes `fs.suid_dumpable=2` every time it starts | apport disabled (`cis_disable_apport`), also a CIS L1 control |
 | Mounts | Remounting `/tmp` live hides files of running processes | fstab only, applied at reboot (`cis_allow_reboot`) |
 | Firewall | `ufw limit` on SSH throttles Ansible/Packer bursts | Plain allow from mgmt CIDRs, no rate limit |
 | Disk layout | Separate `/var`, `/var/log`, `/var/log/audit`, `/var/tmp`, `/home` | Decide in Packer autoinstall (Level 2 in 22.04/24.04) |

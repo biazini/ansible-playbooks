@@ -115,6 +115,9 @@ cis_remove_packages:
   - cups
   - rpcbind                        # remove from this list on NFS clients/servers
 cis_ntp_servers: []                # empty = keep Ubuntu NTS pools
+# CIS "automatic error reporting not enabled". apport also forces
+# fs.suid_dumpable=2 at start, which breaks the CIS sysctl.
+cis_disable_apport: true
 
 # --- PAM / accounts ----------------------------------------------------------
 cis_manage_pam: true               # test on console first; see README
