@@ -1,0 +1,50 @@
+---
+# Console keyboard layout on Ubuntu Server (console-setup).
+# /etc/default/keyboard is the single source of truth:
+#   - systemd-localed (localectl) reads it
+#   - keyboard-setup.service loads it on every boot (tty consoles)
+#   - setupcon compiles it to /etc/console-setup/cached_UTF-8_del.kmap.gz,
+#     which the dracut console-setup module copies into the initramfs, so the
+#     emergency shell uses the same layout
+# The debconf answers are kept in line too, so reconfiguring or upgrading
+# keyboard-configuration never brings the old layout back.
+# Skipped when base_keyboard_layout is empty (role default).
+
+- name: Keyboard | Layout managed on this host
+  when: base_keyboard_layout | length > 0
+  block:
+    - name: Keyboard | Packages present
+      ansible.builtin.apt:
+        name: [keyboard-configuration, console-setup]
+        state: present
+
+    - name: Keyboard | /etc/default/keyboard
+      ansible.builtin.lineinfile:
+        path: /etc/default/keyboard
+        regexp: "^{{ item.key }}="
+        line: '{{ item.key }}="{{ item.value }}"'
+      loop:
+        - { key: XKBMODEL, value: "{{ base_keyboard_model }}" }
+        - { key: XKBLAYOUT, value: "{{ base_keyboard_layout }}" }
+        - { key: XKBVARIANT, value: "{{ base_keyboard_variant }}" }
+        - { key: XKBOPTIONS, value: "{{ base_keyboard_options }}" }
+      loop_control:
+        label: "{{ item.key }}={{ item.value }}"
+      notify:
+        - Apply console keyboard
+        - Rebuild initramfs
+
+    - name: Keyboard | debconf answers of keyboard-configuration
+      ansible.builtin.debconf:
+        name: keyboard-configuration
+        question: "{{ item.question }}"
+        vtype: string
+        value: "{{ item.value }}"
+      loop:
+        - { question: keyboard-configuration/modelcode, value: "{{ base_keyboard_model }}" }
+        - { question: keyboard-configuration/layoutcode, value: "{{ base_keyboard_layout }}" }
+        - { question: keyboard-configuration/variantcode, value: "{{ base_keyboard_variant }}" }
+        - { question: keyboard-configuration/optionscode, value: "{{ base_keyboard_options }}" }
+      loop_control:
+        label: "{{ item.question }}={{ item.value }}"
+      when: item.value | length > 0

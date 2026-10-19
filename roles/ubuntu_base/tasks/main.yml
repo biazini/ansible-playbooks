@@ -1,5 +1,15 @@
 ---
-# Entry point of the role. Each area is a separate file with its own tag.
+# Entry point of the role. Each area is a separate file with its own tag;
+# verify.yml applies the handlers once (one initramfs rebuild for all areas)
+# and checks the result.
+- name: Console keyboard layout
+  ansible.builtin.import_tasks: keyboard.yml
+  tags: [keyboard]
+
 - name: Initramfs without unused dracut modules
   ansible.builtin.import_tasks: initramfs.yml
   tags: [initramfs]
+
+- name: Apply and verify
+  ansible.builtin.import_tasks: verify.yml
+  tags: [always]

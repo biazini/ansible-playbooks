@@ -4,6 +4,17 @@
 # Every tunable is here, with the reason for its default.
 # =============================================================================
 
+# --- Console keyboard ----------------------------------------------------------
+# Ubuntu Server (console-setup). An empty layout means the role leaves the
+# keyboard alone; the site value lives in inventories/<env>/group_vars.
+# Values are XKB names, listed in /usr/share/X11/xkb/rules/evdev.lst
+# (layout pt = Portuguese, variant e.g. nodeadkeys, model pc105 = standard
+# 105-key PC keyboard).
+base_keyboard_model: pc105
+base_keyboard_layout: ""
+base_keyboard_variant: ""
+base_keyboard_options: ""
+
 # --- initramfs (dracut) -------------------------------------------------------
 # dracut modules left out of the initramfs. Ubuntu 26.04 installs them by
 # default, but a normal server or VM does not use them, and both print

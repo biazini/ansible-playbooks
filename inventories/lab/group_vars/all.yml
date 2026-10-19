@@ -35,3 +35,8 @@ cis_ufw_egress_rules:
 
 # Time sources. Empty = keep Ubuntu's NTS pools (needs 123/udp and 4460/tcp out).
 cis_ntp_servers: []
+
+# Console keyboard (role ubuntu_base): Portuguese layout on a standard
+# 105-key PC keyboard.
+base_keyboard_layout: pt
+base_keyboard_model: pc105

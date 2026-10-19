@@ -1,0 +1,38 @@
+---
+# Apply every pending handler once (save + reload the console keymap, then a
+# single initramfs rebuild for both areas) and check the result.
+
+- name: Verify | Apply pending changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify | Layout reported by localectl
+  ansible.builtin.command: localectl status
+  register: _base_localectl
+  changed_when: false
+  check_mode: false
+  when: base_keyboard_layout | length > 0
+
+- name: Verify | localectl shows the configured layout
+  ansible.builtin.assert:
+    that: _base_localectl.stdout is search('X11 Layout:\s+' ~ base_keyboard_layout ~ '\b')
+    fail_msg: "localectl does not report layout {{ base_keyboard_layout }}: {{ _base_localectl.stdout }}"
+    quiet: true
+  when:
+    - base_keyboard_layout | length > 0
+    - not ansible_check_mode
+
+- name: Verify | Modules in the current initramfs
+  ansible.builtin.command: lsinitrd -m /boot/initrd.img-{{ ansible_facts['kernel'] }}
+  register: _base_lsinitrd
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Verify | Omitted dracut modules are not in the initramfs
+  ansible.builtin.assert:
+    that: (base_dracut_omit_modules | select('in', _base_lsinitrd.stdout.split()) | list) | length == 0
+    fail_msg: "Still in the initramfs: {{ base_dracut_omit_modules | select('in', _base_lsinitrd.stdout.split()) | list }}"
+    quiet: true
+  when:
+    - _base_lsinitrd.rc == 0
+    - not ansible_check_mode

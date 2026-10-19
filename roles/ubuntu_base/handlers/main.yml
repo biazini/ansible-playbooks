@@ -1,4 +1,21 @@
 ---
+# Handlers run in the order written here, whatever the order of the notify:
+# keyboard first, so the initramfs rebuild picks up the new compiled keymap.
+
+# Compile /etc/default/keyboard into the console-setup cache (also copied into
+# the initramfs by dracut) without touching the current terminal.
+- name: Save console keymap
+  ansible.builtin.command: setupcon --save-only
+  changed_when: true
+  listen: Apply console keyboard
+
+# Load the new keymap on the tty consoles now (it is loaded at every boot too).
+- name: Reload console keymap
+  ansible.builtin.systemd_service:
+    name: keyboard-setup.service
+    state: restarted
+  listen: Apply console keyboard
+
 # Rebuild every installed kernel's initramfs. Can take a few minutes on a slow
 # VM. The new image is used from the next boot on.
 - name: Rebuild initramfs

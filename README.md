@@ -45,7 +45,7 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 ├── playbooks/                    Entry points, one per job template
 └── roles/
     ├── cis_l1_baseline/          CIS Level 1 role, documented in its own README
-    └── ubuntu_base/              General Ubuntu settings outside CIS (clean initramfs)
+    └── ubuntu_base/              General Ubuntu settings outside CIS (keyboard, clean initramfs)
 ```
 
 ### Conventions
@@ -143,14 +143,14 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 |---|---|---|---|
 | `playbooks/bootstrap.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu VM - Bootstrap automation user | Once per host: creates `svc_ansible` (key, group, NOPASSWD sudo) as an existing sudo user. |
 | `playbooks/ping.yml` | all | Ubuntu VM - Ping | SSH login, privilege escalation, OS and kernel report. Read-only. |
-| `playbooks/base.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu Base - Apply | Applies role `ubuntu_base` (clean initramfs); job type Check or Run at launch. |
+| `playbooks/base.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu Base - Apply | Applies role `ubuntu_base` (console keyboard layout, clean initramfs); job type Check or Run at launch. |
 | `playbooks/site.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Check (dry run) / Apply | Applies role `cis_l1_baseline`; the Check template runs it in check mode with diff. |
 | `playbooks/smoke.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Smoke test | Runs the role's smoke script and fails if any check fails. |
 | `playbooks/seal-template.yml` | all | — | Image builds only: removes host identity before a VM becomes a template. |
 
 | Role | Purpose | Documentation |
 |---|---|---|
-| `ubuntu_base` | General Ubuntu settings outside CIS: initramfs without unused dracut modules | [roles/ubuntu_base/README.md](roles/ubuntu_base/README.md) |
+| `ubuntu_base` | General Ubuntu settings outside CIS: console keyboard layout (pt), initramfs without unused dracut modules | [roles/ubuntu_base/README.md](roles/ubuntu_base/README.md) |
 | `cis_l1_baseline` | CIS Ubuntu 26.04 Level 1 Server hardening, safe for unattended automation | [roles/cis_l1_baseline/README.md](roles/cis_l1_baseline/README.md) |
 
 ---
@@ -364,7 +364,7 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 | [`ansible.cfg`](ansible.cfg) | Pipelining, SSH keep-alive, `remote_tmp` in `$HOME`; every line commented. |
 | [`collections/requirements.yml`](collections/requirements.yml) | Collections and minimum versions. |
 | [`inventories/lab/hosts.yml`](inventories/lab/hosts.yml) | Lab hosts and groups, with the network path explained. |
-| [`inventories/lab/group_vars/all.yml`](inventories/lab/group_vars/all.yml) | Automation account key, management networks, egress allow-list. |
+| [`inventories/lab/group_vars/all.yml`](inventories/lab/group_vars/all.yml) | Automation account key, management networks, egress allow-list, keyboard layout. |
 | [`inventories/lab/group_vars/bastions.yml`](inventories/lab/group_vars/bastions.yml) | Jump-host exception (SSH forwarding). |
 | [`playbooks/`](playbooks/) | Entry points; each file starts with what, when and why. |
 | [`roles/cis_l1_baseline/`](roles/cis_l1_baseline/) | CIS role, its README and task-flow diagram. |
