@@ -7,6 +7,13 @@
   hosts: ubuntu_cis_l1:bastions
   become: true
   gather_facts: false
+  vars:
+    # Ubuntu 25.10+/26.04 default to sudo-rs, which does not honour the custom
+    # prompt Ansible passes with "sudo -p" (ansible-core 2.16 in Ascender-EE):
+    # the play times out "waiting for privilege escalation prompt". The classic
+    # sudo stays installed as sudo.ws, so use it for this password-based run.
+    # Later runs use svc_ansible with NOPASSWD, so no prompt and no workaround.
+    ansible_become_exe: sudo.ws
   tasks:
     - name: Create the automation account from the role
       ansible.builtin.include_role:
