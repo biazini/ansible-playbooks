@@ -1,21 +1,42 @@
-# cis_l1_baseline
+# cis_l1_baseline — CIS Level 1 Server Baseline for Ubuntu
 
-Applies the **CIS Ubuntu Linux 26.04 LTS Benchmark, Level 1 - Server** profile
-(also runs on 24.04). It is designed for hosts that are managed by automation
-(Ascender, Terraform, Packer): the hardening must never cut off the tools
-that manage the host.
+Applies the **CIS Ubuntu Linux 26.04 LTS Benchmark, Level 1 – Server** profile (also runs on 24.04). It is built for hosts managed by automation (Ascender, Terraform, Packer): the hardening must never cut off the tools that manage the host.
 
-> **Benchmark version.** The role follows the 22.04/24.04 control set plus the
-> 26.04 platform changes (sudo-rs, chrony with NTS, OpenSSH 10.x). CIS
-> published the 26.04 Benchmark v1.0.0 in September 2026: reconcile control
-> numbers against that PDF before claiming compliance, and audit with an
-> independent tool (see [Verification](#verification)).
+| | |
+|---|---|
+| **Target** | Ubuntu 26.04 LTS · Ubuntu 24.04 LTS |
+| **Benchmark** | CIS Ubuntu Linux 26.04 LTS v1.0.0 · Level 1 – Server |
+| **Requires** | ansible-core ≥ 2.16 · `community.general` · `ansible.posix` · `ansible.utils` · `netaddr` on the controller |
+| **Validated** | Ubuntu 26.04.1 LTS · smoke test 37/37 · second run `changed=0` |
 
-![Task flow](docs/role-flow.drawio.svg)
+> [!IMPORTANT]
+> The role follows the 22.04/24.04 control set plus the 26.04 platform changes (sudo-rs, chrony with NTS, OpenSSH 10.x). Reconcile control numbers against the CIS 26.04 v1.0.0 PDF before claiming compliance, and audit with an independent tool (see [6. Verification](#6-verification)).
+
+## Contents
+
+1. [Task flow](#1-task-flow)
+2. [Usage](#2-usage)
+3. [What the role changes, and why](#3-what-the-role-changes-and-why)
+4. [Host types and overrides](#4-host-types-and-overrides)
+5. [Exceptions register](#5-exceptions-register)
+6. [Verification](#6-verification)
+7. [Role files](#7-role-files)
 
 ---
 
-## How it is used
+## 1. Task flow
+
+![cis_l1_baseline task flow](docs/cis_l1_baseline-flow.png)
+
+*Figure 1 — Order of the task files in `tasks/main.yml`, with their tags (source: [`cis_l1_baseline-flow.drawio`](docs/cis_l1_baseline-flow.drawio))*
+
+Access-critical steps come first (preflight, automation account) and last (firewall), with SSH in between re-tested by reconnecting. Every block has a tag, so a part can be re-applied alone, e.g. `--tags ssh,sudo` or the **Job Tags** field in Ascender.
+
+---
+
+## 2. Usage
+
+### 2.1 Run order
 
 | Step | Playbook | Ascender job template | Notes |
 |---|---|---|---|
@@ -31,10 +52,10 @@ Package updates (grub, openssh, apport) can change files or permissions back,
 and the role puts them right again. A second run should report only a few
 changes.
 
-Run part of the role with tags (the tag of each step is in the diagram), for
+Run part of the role with tags (the tag of each step is in Figure 1), for
 example `--tags ssh,sudo` or, in Ascender, the *Job Tags* field.
 
-### Variables
+### 2.2 Variables
 
 Every tunable is in [`defaults/main.yml`](defaults/main.yml), with a comment
 explaining it. Site values go in `inventories/<env>/group_vars/`. Two are
@@ -47,9 +68,9 @@ required, and the preflight stops the run without them:
 
 ---
 
-## What the role changes, and why
+## 3. What the role changes, and why
 
-### Access first: preflight and the automation account
+### 3.1 Access first: preflight and the automation account
 
 **Preflight** (`tasks/preflight.yml`) runs before anything changes. It checks
 the Ubuntu release, that the two required variables are set, that the address
@@ -73,7 +94,7 @@ than find out halfway.
   "Re-authenticate for privilege escalation" is a Level 2 control in the
   22.04/24.04 benchmarks, so this is compatible with Level 1.
 
-### Packages and services (`tasks/packages.yml`)
+### 3.2 Packages and services (`tasks/packages.yml`)
 
 - Installs what later steps need: `apparmor`, `libpam-pwquality`, `chrony`,
   `ufw`, and `acl` (lets Ansible become an unprivileged user without leaving
@@ -86,7 +107,7 @@ than find out halfway.
   and apport also writes `fs.suid_dumpable=2` every time it starts, which
   would override the CIS sysctl value of 0.
 
-### Kernel modules (`tasks/kernel_modules.yml`)
+### 3.3 Kernel modules (`tasks/kernel_modules.yml`)
 
 Filesystems the server never uses (`cramfs`, `freevxfs`, `hfs`, `hfsplus`,
 `jffs2`) and `usb-storage` get `install <mod> /bin/false` plus `blacklist`.
@@ -98,7 +119,7 @@ crafted media.
 - `iso9660` and `overlay` are refused outright. vSphere guest customisation
   and cloud-init media use `iso9660`; containerd and Docker need `overlay`.
 
-### Temporary filesystems (`tasks/mounts.yml`, `tasks/apt.yml`)
+### 3.4 Temporary filesystems (`tasks/mounts.yml`, `tasks/apt.yml`)
 
 `/tmp` and `/dev/shm` get `nodev,nosuid,noexec`, so files dropped in
 world-writable places cannot be run as programs or carry device or setuid
@@ -123,7 +144,7 @@ bits.
   `remote_folder`), vendor installers. `/var/tmp` is not an alternative: it is
   also `noexec` under CIS.
 
-### Kernel and network parameters (`tasks/sysctl.yml`)
+### 3.5 Kernel and network parameters (`tasks/sysctl.yml`)
 
 [`templates/60-cis.conf.j2`](templates/60-cis.conf.j2) sets ASLR, ptrace
 restrictions, no setuid core dumps, no IP forwarding, no ICMP redirects or
@@ -139,7 +160,7 @@ contain passwords and keys from memory.
   set `cis_rp_filter: 2`. Networks that rely on IPv6 SLAAC set
   `cis_ipv6_accept_ra: true`.
 
-### Bootloader (`tasks/bootloader.yml`)
+### 3.6 Bootloader (`tasks/bootloader.yml`)
 
 AppArmor is enforced on the kernel command line, and `grub.cfg` is readable by
 root only. A GRUB password is optional (`cis_grub_password_pbkdf2`). When set,
@@ -147,7 +168,7 @@ menu entries are marked `--unrestricted`: booting needs no password, only
 editing entries or opening the GRUB shell does. Without that, every unattended
 reboot of a VM would stop at a password prompt.
 
-### Time (`tasks/time.yml`)
+### 3.7 Time (`tasks/time.yml`)
 
 chrony is the only time daemon. By default Ubuntu 26.04 uses public NTS
 pools (authenticated time over TCP 4460). With `cis_ntp_servers` set, the
@@ -155,7 +176,7 @@ role adds internal servers and empties the public pool file. It replaces the
 file's contents instead of deleting it, because it belongs to the package and
 would come back on the next upgrade.
 
-### SSH server (`tasks/sshd.yml`, `templates/00-cis-hardening.conf.j2`)
+### 3.8 SSH server (`tasks/sshd.yml`, `templates/00-cis-hardening.conf.j2`)
 
 Key-only authentication, no root login, no empty passwords, `MaxAuthTries 4`,
 `AllowGroups automation sshusers`, strict ciphers, MACs and key exchange,
@@ -182,7 +203,7 @@ verbose logging and a login banner.
 - **Human administrators** must be in the `sshusers` group and have a key.
   Without that, after hardening they reach the host only through the console.
 
-### Sudo (`tasks/sudo.yml`)
+### 3.9 Sudo (`tasks/sudo.yml`)
 
 `use_pty` (a sudo command cannot keep running in the background after the
 session ends) and a 15-minute credential timeout. Ubuntu 26.04 ships
@@ -195,7 +216,7 @@ recognise sudo-rs's password prompt.
 The task also reports any `Defaults !authenticate`, which would disable
 re-authentication for everyone.
 
-### Accounts and PAM (`tasks/accounts.yml`)
+### 3.10 Accounts and PAM (`tasks/accounts.yml`)
 
 - Password aging (365 days max, 1 day min, 7 days warning, locked after 45
   days inactive), applied to new accounts and to existing accounts **that have
@@ -211,14 +232,14 @@ re-authentication for everyone.
   shell waiting at a prompt. Non-interactive SSH commands, which is how
   Ansible, Terraform and Packer work, are never affected.
 
-### Logging, banners and scheduling (`tasks/misc.yml`)
+### 3.11 Logging, banners and scheduling (`tasks/misc.yml`)
 
 journald is persistent and compressed, so logs (including sudo-rs) survive
 reboots. Login banners state that use is monitored and say nothing about the
 OS or its version. cron and at are limited to root with allow-lists, and cron
 directories are root-only. AppArmor must be running.
 
-### File integrity (`tasks/aide.yml`)
+### 3.12 File integrity (`tasks/aide.yml`)
 
 AIDE is installed, its baseline database is built in the background (async,
 because it can take more than 20 minutes on a slow VM), and the daily check
@@ -227,7 +248,7 @@ a golden image gets a new hostname, keys and network on first boot, so every
 clone would start with a report full of noise. Clones build their own baseline
 on their first configuration run.
 
-### Host firewall (`tasks/firewall.yml`)
+### 3.13 Host firewall (`tasks/firewall.yml`)
 
 ufw with incoming **and** outgoing traffic denied by default:
 
@@ -246,7 +267,7 @@ ufw with incoming **and** outgoing traffic denied by default:
 - The firewall runs **last**: if the timer ever has to fire, every other
   setting is already in place.
 
-### VMware integration (`tasks/vmware.yml`, optional)
+### 3.14 VMware integration (`tasks/vmware.yml`, optional)
 
 With `cis_vmware_manage_cloudinit: true`, open-vm-tools runs and cloud-init
 uses the VMware/OVF datasources, with `ssh_pwauth: false` so it cannot turn
@@ -255,7 +276,7 @@ attached ISO, not over the network, so the host firewall does not affect it.
 
 ---
 
-## Host types and their overrides
+## 4. Host types and overrides
 
 | Host type | Variables | Why |
 |---|---|---|
@@ -276,7 +297,7 @@ changed cheaply after deployment.
 
 ---
 
-## Exceptions register
+## 5. Exceptions register
 
 Deviations from the benchmark, each controlled by a variable. Keep this table
 up to date before go-live.
@@ -292,7 +313,7 @@ up to date before go-live.
 
 ---
 
-## Verification
+## 6. Verification
 
 - **Smoke test** (`files/cis-l1-smoke.sh`, run by `playbooks/smoke.yml`): 37
   quick checks of the effective state (`findmnt`, `sshd -T`, `ufw status`,
@@ -305,7 +326,7 @@ up to date before go-live.
 
   Fix the findings, or record them in the exceptions register.
 
-### Why a custom role
+### 6.1 Why a custom role
 
 | Option | When it fits |
 |---|---|
@@ -314,9 +335,9 @@ up to date before go-live.
 | **This role** | Level 1 now, small and readable, with every automation-related deviation as a variable |
 | CIS Build Kits / CIS-CAT Pro | Formal evidence for auditors (CIS SecureSuite membership) |
 
-## Files
+## 7. Role files
 
-```
+```text
 defaults/main.yml          every variable, with comments
 tasks/main.yml             order of the steps (see diagram), tags
 tasks/*.yml                one file per area
@@ -324,5 +345,5 @@ templates/                 sshd drop-in, sysctl file
 files/pam-configs/         pam-auth-update profiles (faillock, pwhistory)
 files/cis-l1-smoke.sh      post-run smoke test
 handlers/main.yml          sysctl reload, update-grub, journald restart, optional reboot
-docs/role-flow.drawio.svg  task flow diagram (editable in draw.io)
+docs/                      task-flow diagram (draw.io source + PNG export)
 ```
