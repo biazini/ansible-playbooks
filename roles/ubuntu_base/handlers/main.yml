@@ -1,0 +1,13 @@
+---
+# Rebuild every installed kernel's initramfs. Can take a few minutes on a slow
+# VM. The new image is used from the next boot on.
+- name: Rebuild initramfs
+  ansible.builtin.command: dracut --force --regenerate-all
+  changed_when: true
+  notify: Reboot if allowed
+
+- name: Reboot if allowed
+  ansible.builtin.reboot:
+    reboot_timeout: 900
+    msg: "Reboot by Ansible (ubuntu_base): new initramfs"
+  when: base_allow_reboot | bool

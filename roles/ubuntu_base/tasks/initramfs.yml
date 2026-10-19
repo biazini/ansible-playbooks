@@ -1,0 +1,73 @@
+---
+# Leaves unused dracut modules (base_dracut_omit_modules) out of the initramfs.
+# Why: they print warnings on every boot and add code to the early boot that
+# the host never uses. The packages stay installed (other packages depend on
+# them); only the initramfs changes. Takes effect at the next boot.
+
+- name: Initramfs | Is dracut the initramfs generator
+  ansible.builtin.stat:
+    path: /usr/bin/dracut
+  register: _base_dracut
+
+- name: Initramfs | dracut configuration
+  when: _base_dracut.stat.exists
+  block:
+    - name: Initramfs | Read the overlayroot setting
+      ansible.builtin.command: grep -E '^\s*overlayroot=' /etc/overlayroot.conf
+      register: _base_overlayroot
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # Omitting the module on a host that uses overlayroot would boot it with a
+    # normal writable root instead of the read-only overlay it expects.
+    - name: Initramfs | overlayroot is not in use when its module is omitted
+      ansible.builtin.assert:
+        that:
+          - >-
+            'overlayroot' not in base_dracut_omit_modules or
+            (_base_overlayroot.stdout | regex_replace('^\s*overlayroot=', '') | trim) in ['', '""', "''", '"disabled"', 'disabled']
+          - >-
+            'overlayroot' not in base_dracut_omit_modules or
+            ('overlayroot' not in ansible_facts['cmdline'] and 'rd.overlay' not in ansible_facts['cmdline'])
+        fail_msg: >-
+          overlayroot is configured on this host ({{ _base_overlayroot.stdout | default('kernel command line') }}).
+          Remove 'overlayroot' from base_dracut_omit_modules for this host.
+        quiet: true
+
+    - name: Initramfs | Omit unused dracut modules
+      ansible.builtin.copy:
+        dest: /etc/dracut.conf.d/90-ubuntu-base-omit.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by Ansible (ubuntu_base) - see roles/ubuntu_base/README.md
+          omit_dracutmodules+=" {{ base_dracut_omit_modules | join(' ') }} "
+      when: base_dracut_omit_modules | length > 0
+      notify: Rebuild initramfs
+
+    - name: Initramfs | No omit file when the list is empty
+      ansible.builtin.file:
+        path: /etc/dracut.conf.d/90-ubuntu-base-omit.conf
+        state: absent
+      when: base_dracut_omit_modules | length == 0
+      notify: Rebuild initramfs
+
+    # Rebuild now (not at the end of the play) so the check below sees it.
+    - name: Initramfs | Apply pending rebuild
+      ansible.builtin.meta: flush_handlers
+
+    - name: Initramfs | Modules in the current initramfs
+      ansible.builtin.command: lsinitrd -m /boot/initrd.img-{{ ansible_facts['kernel'] }}
+      register: _base_lsinitrd
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Initramfs | Omitted modules are not in the initramfs
+      ansible.builtin.assert:
+        that: (base_dracut_omit_modules | select('in', _base_lsinitrd.stdout.split()) | list) | length == 0
+        fail_msg: "Still in the initramfs: {{ base_dracut_omit_modules | select('in', _base_lsinitrd.stdout.split()) | list }}"
+        quiet: true
+      when: not ansible_check_mode

@@ -6,7 +6,7 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 |---|---|
 | **Validated with** | Ascender 25.6.2 · Execution Environment `ascender-ee:25.6.2` (ansible-core 2.16) · k3s `v1.36.5+k3s1` |
 | **Managed platform** | Ubuntu 26.04 LTS (also 24.04 LTS), x86_64 |
-| **Content** | Role `cis_l1_baseline` · 5 playbooks · lab inventory |
+| **Content** | Roles `ubuntu_base` and `cis_l1_baseline` · 6 playbooks · lab inventory |
 
 ![Ansible for Ascender — Linux Infrastructure](docs/images/cover.png)
 
@@ -44,7 +44,8 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 │   └── lab/                      hosts.yml + group_vars/ (one folder per environment)
 ├── playbooks/                    Entry points, one per job template
 └── roles/
-    └── cis_l1_baseline/          CIS Level 1 role, documented in its own README
+    ├── cis_l1_baseline/          CIS Level 1 role, documented in its own README
+    └── ubuntu_base/              General Ubuntu settings outside CIS (clean initramfs)
 ```
 
 ### Conventions
@@ -91,7 +92,7 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 | Source control credential | `GitHub - ansible-playbooks` | GitHub user + fine-grained token (contents: read-only, this repository only). |
 | Machine credential | `Ubuntu VM - svc_ansible (SSH key)` | Key-only automation account, sudo without password. Used by every job except bootstrap. |
 | Machine credential | `Ubuntu VM - bootstrap (gfilho)` | Existing sudo user; SSH and sudo passwords are asked at launch and never stored. |
-| Job templates | Bootstrap · Ping · CIS Check (dry run) · CIS Apply · Smoke test | Project + inventory + credential + playbook (see [2.3](#23-content-catalogue)). |
+| Job templates | Bootstrap · Ping · Base Apply · CIS Check (dry run) · CIS Apply · Smoke test | Project + inventory + credential + playbook (see [2.3](#23-content-catalogue)). |
 | Team | **Linux Team** | Receives roles on the templates it operates. |
 | Execution Environment | `ghcr.io/ctrliq/ascender-ee:25.6.2` | Runtime of every project sync, inventory sync and job. |
 | SSH relay (lab) | systemd unit `vbox-ubuntu-ssh-relay` in WSL (socat) | Bridges the k3s pod network to the VirtualBox port forward. |
@@ -142,12 +143,14 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 |---|---|---|---|
 | `playbooks/bootstrap.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu VM - Bootstrap automation user | Once per host: creates `svc_ansible` (key, group, NOPASSWD sudo) as an existing sudo user. |
 | `playbooks/ping.yml` | all | Ubuntu VM - Ping | SSH login, privilege escalation, OS and kernel report. Read-only. |
+| `playbooks/base.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu Base - Apply | Applies role `ubuntu_base` (clean initramfs); job type Check or Run at launch. |
 | `playbooks/site.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Check (dry run) / Apply | Applies role `cis_l1_baseline`; the Check template runs it in check mode with diff. |
 | `playbooks/smoke.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Smoke test | Runs the role's smoke script and fails if any check fails. |
 | `playbooks/seal-template.yml` | all | — | Image builds only: removes host identity before a VM becomes a template. |
 
 | Role | Purpose | Documentation |
 |---|---|---|
+| `ubuntu_base` | General Ubuntu settings outside CIS: initramfs without unused dracut modules | [roles/ubuntu_base/README.md](roles/ubuntu_base/README.md) |
 | `cis_l1_baseline` | CIS Ubuntu 26.04 Level 1 Server hardening, safe for unattended automation | [roles/cis_l1_baseline/README.md](roles/cis_l1_baseline/README.md) |
 
 ---
@@ -242,11 +245,11 @@ Launch **Ubuntu VM - Bootstrap automation user** with **Limit** `<HOST>`. Enter 
 
 ✅ **Expected result** — `failed=0`; tasks *Group exists*, *User exists*, *Authorized keys* and *Group allowed to sudo* report `changed` on the first run.
 
-### 5.4 Phase 4 — Connectivity check
+### 5.4 Phase 4 — Connectivity check and base settings
 
-Launch **Ubuntu VM - Ping**.
+Launch **Ubuntu VM - Ping**, then **Ubuntu Base - Apply**.
 
-✅ **Expected result** — `SSH login as svc_ansible, become -> root` and `failed=0`.
+✅ **Expected result** — `SSH login as svc_ansible, become -> root` and `failed=0` for both; the base job rebuilds the initramfs (effective at the reboot in Phase 7).
 
 ### 5.5 Phase 5 — Dry run
 
@@ -338,6 +341,7 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 | SSH `Connection reset by peer` on the port forward | No `sshd` listening in the VM | Install and enable `openssh-server` ([5.1](#51-phase-1--prepare-the-host)). |
 | Check mode fails: `check mode and async cannot be used` | Async task without a check-mode guard | Guard the task with `not ansible_check_mode` (done for AIDE). |
 | Smoke test: `fs.suid_dumpable` = 2 | apport rewrites it at start | Role disables apport (`cis_disable_apport`). |
+| Boot shows `copymods is deprecated`, `/lib/modules/... exists` or `ln: ... /sysroot/media/root-ro` | Unused dracut modules from Ubuntu 26.04 defaults | Run **Ubuntu Base - Apply** and reboot (role `ubuntu_base`). |
 | VM stops in initramfs: `Can't mount root filesystem` | Root `fsck` killed by a timeout after an unclean stop | From the emergency shell: `e2fsck -p /dev/sda2`, then `systemctl reboot`. |
 | `ansible.cfg` ignored when running locally | Repository in a world-writable folder (`/mnt/c/...`) | Clone inside the WSL filesystem, e.g. `~/ansible-playbooks`. |
 
@@ -364,6 +368,7 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 | [`inventories/lab/group_vars/bastions.yml`](inventories/lab/group_vars/bastions.yml) | Jump-host exception (SSH forwarding). |
 | [`playbooks/`](playbooks/) | Entry points; each file starts with what, when and why. |
 | [`roles/cis_l1_baseline/`](roles/cis_l1_baseline/) | CIS role, its README and task-flow diagram. |
+| [`roles/ubuntu_base/`](roles/ubuntu_base/) | General Ubuntu settings, its README and task-flow diagram. |
 
 ## Appendix B — References
 

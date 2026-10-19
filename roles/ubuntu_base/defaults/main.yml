@@ -1,0 +1,28 @@
+---
+# =============================================================================
+# ubuntu_base - general Ubuntu settings that are not part of a CIS control.
+# Every tunable is here, with the reason for its default.
+# =============================================================================
+
+# --- initramfs (dracut) -------------------------------------------------------
+# dracut modules left out of the initramfs. Ubuntu 26.04 installs them by
+# default, but a normal server or VM does not use them, and both print
+# warnings on every boot:
+#   copymods     package cloud-initramfs-copymods. Copies kernel modules into a
+#                root filesystem that has none (some cloud images). It always
+#                prints "Kernel command line option 'copymods' is deprecated"
+#                and, through kernel-modules-export, "/lib/modules/<kver>
+#                exists. To export modules set rd.driver.export=force!".
+#   overlayroot  package overlayroot. Read-only root with a writable overlay.
+#                Its compatibility hook always tries to create
+#                /sysroot/media/root-ro and fails ("Read-only file system")
+#                when the feature is not in use.
+# Remove a name from the list on a host that really uses the feature; the role
+# refuses to omit overlayroot while overlayroot is configured.
+base_dracut_omit_modules:
+  - copymods
+  - overlayroot
+
+# Reboot automatically after the initramfs is rebuilt. Off by default: the new
+# initramfs is only used at the next boot, so reboot in a maintenance window.
+base_allow_reboot: false

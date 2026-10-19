@@ -1,0 +1,14 @@
+---
+# =============================================================================
+# Ubuntu base settings (outside the CIS baseline)
+#
+# What:  applies roles/ubuntu_base: today, an initramfs without the unused
+#        dracut modules that print warnings on every boot.
+# Where: Ascender job template "Ubuntu Base - Apply" (check mode available at
+#        launch). The change takes effect at the next reboot.
+# =============================================================================
+- name: Ubuntu base settings
+  hosts: ubuntu_cis_l1:bastions
+  become: true
+  roles:
+    - role: ubuntu_base
