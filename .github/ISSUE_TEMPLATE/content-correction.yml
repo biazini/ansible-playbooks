@@ -1,0 +1,27 @@
+name: Content correction
+description: Point out an error in a playbook, role, inventory or its documentation.
+title: "[Content]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository does not accept public issues. Security problems must be reported privately,
+        see the [security policy](https://github.com/biazini/ansible-playbooks/blob/main/.github/SECURITY.md).
+  - type: input
+    id: location
+    attributes:
+      label: Playbook, role or file
+      placeholder: e.g. roles/cis_l1_baseline/tasks/firewall.yml
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong
+      description: The observed behaviour, with the job output or the exact error if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction

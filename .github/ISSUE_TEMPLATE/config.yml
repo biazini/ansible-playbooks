@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem in this content
+    url: https://github.com/biazini/ansible-playbooks/blob/main/.github/SECURITY.md
+    about: Report privately to the maintainer, as described in the security policy.
+  - name: Ascender bugs and questions
+    url: https://github.com/ctrliq/ascender/issues
+    about: Problems with Ascender itself belong to the upstream project.
+  - name: Ansible bugs
+    url: https://github.com/ansible/ansible/issues
+    about: Problems with ansible-core belong to the upstream project.
