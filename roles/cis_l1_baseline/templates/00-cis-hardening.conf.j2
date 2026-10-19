@@ -1,0 +1,41 @@
+# {{ ansible_managed }}
+#
+# sshd uses the FIRST value it reads for each keyword. This file is included
+# from the top of /etc/ssh/sshd_config and sorts before 50-cloud-init.conf, so
+# cloud-init (ssh_pwauth etc.) cannot silently re-enable what is set here.
+# Check the effective result with:  sshd -T | sort
+
+LogLevel VERBOSE
+SyslogFacility AUTH
+
+# --- Authentication ---
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication {{ 'yes' if cis_ssh_password_auth else 'no' }}
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+HostbasedAuthentication no
+IgnoreRhosts yes
+GSSAPIAuthentication {{ 'yes' if cis_ssh_gssapi else 'no' }}
+UsePAM yes
+PermitUserEnvironment no
+MaxAuthTries {{ cis_ssh_max_auth_tries }}
+LoginGraceTime {{ cis_ssh_login_grace_time }}
+AllowGroups {{ cis_ssh_allow_groups | join(' ') }}
+
+# --- Sessions ---
+# ClientAlive* detects DEAD connections (no reply to an encrypted probe).
+# A busy or merely silent Ansible/Terraform session answers the probes and is
+# never dropped. It is not an idle-user timeout.
+ClientAliveInterval {{ cis_ssh_client_alive_interval }}
+ClientAliveCountMax {{ cis_ssh_client_alive_count_max }}
+MaxSessions {{ cis_ssh_max_sessions }}
+MaxStartups {{ cis_ssh_max_startups }}
+DisableForwarding {{ 'yes' if cis_ssh_disable_forwarding else 'no' }}
+X11Forwarding no
+Banner /etc/issue.net
+
+# --- Crypto ---
+Ciphers {{ _cis_ssh_ciphers_eff | join(',') }}
+MACs {{ _cis_ssh_macs_eff | join(',') }}
+KexAlgorithms {{ _cis_ssh_kex_eff | join(',') }}

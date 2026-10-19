@@ -1,0 +1,7 @@
+*.retry
+.vault_pass*
+*.pem
+id_*
+!id_*.pub
+.ansible/
+collections/ansible_collections/

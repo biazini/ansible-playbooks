@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: cis_l1_baseline
+  namespace: infra
+  author: Guilherme Filho
+  description: CIS Ubuntu 26.04 LTS Level 1 Server baseline, safe for Ansible/Terraform/Packer pipelines
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble, resolute]
+dependencies: []

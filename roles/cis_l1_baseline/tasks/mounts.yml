@@ -1,0 +1,68 @@
+---
+# /tmp: CIS L1 wants a separate filesystem with nodev,nosuid,noexec.
+# A tmpfs via fstab satisfies "separate partition" and needs no disk layout
+# change. If the image already has a /tmp partition, its source and fstype are
+# kept and only the options are enforced.
+#
+# /tmp is NEVER remounted live: mounting a fresh tmpfs over a busy /tmp hides
+# files that running processes still use. The change takes effect at reboot.
+
+- name: Mounts | Read the /tmp fstab entry
+  ansible.builtin.command: findmnt --fstab -n -o SOURCE,FSTYPE,OPTIONS /tmp
+  register: _cis_tmp_fstab
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: cis_manage_tmp_mount | bool
+
+- name: Mounts | Read the live /tmp options
+  ansible.builtin.command: findmnt -n -o OPTIONS /tmp
+  register: _cis_tmp_live
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: cis_manage_tmp_mount | bool
+
+- name: Mounts | Compute the /tmp entry
+  ansible.builtin.set_fact:
+    _cis_tmp_fields: >-
+      {{ _cis_tmp_fstab.stdout.split()
+         if (_cis_tmp_fstab.rc == 0 and _cis_tmp_fstab.stdout | length > 0)
+         else ['tmpfs', 'tmpfs', 'defaults,rw,relatime,mode=1777,size=' ~ cis_tmp_tmpfs_size] }}
+  when: cis_manage_tmp_mount | bool
+
+- name: Mounts | /tmp in fstab with nodev,nosuid,noexec
+  ansible.posix.mount:
+    path: /tmp
+    src: "{{ _cis_tmp_fields[0] }}"
+    fstype: "{{ _cis_tmp_fields[1] }}"
+    opts: "{{ (_cis_tmp_fields[2].split(',') + cis_tmp_mount_opts) | unique | join(',') }}"
+    state: present
+  when: cis_manage_tmp_mount | bool
+
+- name: Mounts | Flag a reboot when live /tmp lacks the options
+  ansible.builtin.set_fact:
+    cis_reboot_required: true
+  when:
+    - cis_manage_tmp_mount | bool
+    - (cis_tmp_mount_opts | difference(_cis_tmp_live.stdout.split(','))) | length > 0
+  notify: Reboot if allowed
+  changed_when: true
+
+- name: Mounts | /dev/shm in fstab with nodev,nosuid,noexec
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "defaults,rw,relatime,{{ cis_dev_shm_opts | join(',') }}"
+    state: present
+  register: _cis_shm_fstab
+  when: cis_manage_dev_shm | bool
+
+# Remounting /dev/shm with stricter flags is safe live (contents are kept).
+- name: Mounts | Apply /dev/shm options now  # noqa: command-instead-of-module no-handler
+  ansible.builtin.command: mount -o remount,{{ cis_dev_shm_opts | join(',') }} /dev/shm
+  when:
+    - cis_manage_dev_shm | bool
+    - _cis_shm_fstab is changed
+  changed_when: true

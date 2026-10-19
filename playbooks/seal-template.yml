@@ -1,0 +1,47 @@
+---
+# Run by Packer as the LAST provisioner, after site.yml with
+# -e cis_template_build=true. Leaves the VM ready to be converted to a vSphere
+# template: no host identity, no AIDE baseline, cloud-init ready to run again.
+- name: Seal the VM before converting it to a template
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Seal | Clean apt caches  # noqa: command-instead-of-module
+      ansible.builtin.command: apt-get clean
+      changed_when: true
+
+    - name: Seal | No AIDE database in the template
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: [/var/lib/aide/aide.db, /var/lib/aide/aide.db.new]
+
+    # cloud-init regenerates host keys on first boot (ssh_deletekeys default).
+    # If you ever deploy WITHOUT cloud-init, keep the keys or the clone has none.
+    - name: Seal | Find SSH host keys
+      ansible.builtin.find:
+        paths: /etc/ssh
+        patterns: "ssh_host_*"
+      register: _seal_hostkeys
+
+    - name: Seal | Remove SSH host keys
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _seal_hostkeys.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Seal | Reset cloud-init state, logs, seed and machine-id
+      ansible.builtin.command: cloud-init clean --logs --seed --machine-id
+      changed_when: true
+
+    - name: Seal | Truncate journal and shell history
+      ansible.builtin.shell: |
+        set -o pipefail
+        journalctl --rotate && journalctl --vacuum-time=1s
+        find /root /home -maxdepth 2 -name .bash_history -delete
+      args:
+        executable: /bin/bash
+      changed_when: true

@@ -1,0 +1,48 @@
+---
+- name: Sysctl | CIS parameters
+  ansible.builtin.template:
+    src: 60-cis.conf.j2
+    dest: /etc/sysctl.d/60-cis.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl
+
+# ufw re-applies /etc/ufw/sysctl.conf every time it starts, which can silently
+# undo values above. Make ufw load our file instead.
+- name: Sysctl | Stop ufw from overriding CIS sysctls
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^IPT_SYSCTL='
+    line: IPT_SYSCTL=/etc/sysctl.d/60-cis.conf
+  when: cis_manage_firewall | bool
+
+- name: Sysctl | Restrict process core dumps
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/60-cis-core.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      *    hard    core    0
+
+- name: Sysctl | coredump drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/coredump.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Sysctl | systemd-coredump does not store dumps
+  ansible.builtin.copy:
+    dest: /etc/systemd/coredump.conf.d/60-cis.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0

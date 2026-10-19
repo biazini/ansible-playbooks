@@ -1,0 +1,73 @@
+---
+- name: Preflight (anti-lockout checks)
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [always]
+
+- name: Automation account
+  ansible.builtin.import_tasks: automation_user.yml
+  tags: [accounts, automation]
+
+- name: Packages and services
+  ansible.builtin.import_tasks: packages.yml
+  tags: [packages]
+
+- name: Kernel modules (filesystems, usb-storage)
+  ansible.builtin.import_tasks: kernel_modules.yml
+  tags: [modules]
+
+- name: Mount options for /tmp and /dev/shm
+  ansible.builtin.import_tasks: mounts.yml
+  tags: [mounts]
+
+- name: APT compatibility with noexec /tmp
+  ansible.builtin.import_tasks: apt.yml
+  tags: [apt, mounts]
+
+- name: Kernel and network sysctls
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [sysctl]
+
+- name: Bootloader (AppArmor, permissions, optional password)
+  ansible.builtin.import_tasks: bootloader.yml
+  tags: [grub]
+
+- name: Time synchronisation (chrony)
+  ansible.builtin.import_tasks: time.yml
+  tags: [time]
+
+- name: SSH server
+  ansible.builtin.import_tasks: sshd.yml
+  tags: [ssh]
+
+- name: Sudo
+  ansible.builtin.import_tasks: sudo.yml
+  tags: [sudo]
+
+- name: PAM, passwords and shell defaults
+  ansible.builtin.import_tasks: accounts.yml
+  tags: [accounts, pam]
+
+- name: Cron / at permissions, banners, logging
+  ansible.builtin.import_tasks: misc.yml
+  tags: [misc]
+
+- name: VMware / cloud-init integration
+  ansible.builtin.import_tasks: vmware.yml
+  when: cis_vmware_manage_cloudinit | bool
+  tags: [vmware]
+
+- name: AIDE file integrity
+  ansible.builtin.import_tasks: aide.yml
+  when: cis_aide_enabled | bool
+  tags: [aide]
+
+# Firewall goes last: every other change is already in place if the rollback
+# timer ever has to fire.
+- name: Host firewall (ufw) with automatic rollback
+  ansible.builtin.import_tasks: firewall.yml
+  when: cis_manage_firewall | bool
+  tags: [firewall]
+
+- name: Post-run summary
+  ansible.builtin.import_tasks: summary.yml
+  tags: [always]

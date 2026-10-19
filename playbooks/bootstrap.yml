@@ -1,0 +1,14 @@
+---
+# One-off, before the first site.yml run on a new host.
+# Runs as an existing sudo user with password (Ascender prompts for it at launch)
+# and creates the key-only automation account that every other playbook uses:
+# user + group, authorized key (cis_automation_pubkeys), NOPASSWD sudo rule.
+- name: Bootstrap the automation account
+  hosts: ubuntu_cis_l1:bastions
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create the automation account from the role
+      ansible.builtin.include_role:
+        name: cis_l1_baseline
+        tasks_from: automation_user.yml

@@ -1,0 +1,41 @@
+---
+# Ubuntu 26.04 uses sudo-rs by default. It supports timestamp_timeout and
+# use_pty (on by default) but NOT "Defaults logfile" or I/O logging, so the
+# CIS "sudo log file" control is met through journald (sudo-rs logs to syslog)
+# unless you switch the alternative back to sudo.ws. Document which one you use.
+- name: Sudo | Detect implementation
+  ansible.builtin.command: sudo --version
+  register: _cis_sudo_version
+  changed_when: false
+  check_mode: false
+
+- name: Sudo | Remember implementation
+  ansible.builtin.set_fact:
+    cis_sudo_is_rs: "{{ 'sudo-rs' in (_cis_sudo_version.stdout_lines | first | default('')) }}"
+
+- name: Sudo | CIS defaults
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/10-cis-defaults
+    owner: root
+    group: root
+    mode: "0440"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      Defaults use_pty
+      Defaults timestamp_timeout=15
+      {% if not cis_sudo_is_rs %}
+      Defaults logfile="/var/log/sudo.log"
+      {% endif %}
+    validate: visudo -cf %s
+
+- name: Sudo | Find global !authenticate overrides
+  ansible.builtin.command: grep -rlE '^\s*Defaults\s+.*!authenticate' /etc/sudoers /etc/sudoers.d
+  register: _cis_sudo_noauth
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: "Sudo | Report global !authenticate (CIS - re-authentication must not be disabled globally)"
+  ansible.builtin.debug:
+    msg: "Remove 'Defaults !authenticate' from: {{ _cis_sudo_noauth.stdout_lines }}"
+  when: _cis_sudo_noauth.stdout_lines | length > 0

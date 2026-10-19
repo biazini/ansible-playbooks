@@ -1,0 +1,6 @@
+---
+# cis_ prefix is used on purpose (variables are shared with group_vars)
+skip_list:
+  - var-naming[no-role-prefix]
+exclude_paths:
+  - examples/

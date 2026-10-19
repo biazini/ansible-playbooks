@@ -1,0 +1,156 @@
+---
+# =============================================================================
+# cis_l1_baseline - CIS Ubuntu Linux 26.04 LTS, Level 1 Server, automation-safe
+#
+# Every deviation from the benchmark is a variable here and is listed in the
+# README "Exceptions register". Rule numbers are deliberately NOT hard-coded:
+# reconcile them against the 26.04 v1.0.0 PDF before claiming compliance.
+# =============================================================================
+
+# --- Run control -------------------------------------------------------------
+cis_supported_releases: ["26.04", "24.04"]
+cis_allow_reboot: false            # reboot automatically when /tmp mount changes
+cis_template_build: false          # true when run by Packer for a golden image
+
+# --- Automation account ------------------------------------------------------
+cis_automation_user: svc_ansible
+cis_automation_group: automation
+cis_automation_pubkeys: []
+# Key-only account. "*" = no usable password hash, so PAM password-aging and
+# faillock rules never apply to it and it can never be "expired" mid-pipeline.
+cis_automation_password: "*"
+# CIS "users must provide password for privilege escalation" is Level 2 in the
+# 22.04/24.04 benchmarks, so NOPASSWD for the automation group is L1-compatible.
+cis_automation_nopasswd: true
+
+# --- SSH ---------------------------------------------------------------------
+cis_ssh_port: 22
+cis_ssh_allow_groups: ["{{ cis_automation_group }}", "sshusers"]
+cis_ssh_password_auth: false
+cis_ssh_disable_forwarding: true   # set false on bastions (ProxyJump)
+cis_ssh_gssapi: false              # set true if you use Kerberos SSO via SSSD/AD
+cis_ssh_client_alive_interval: 15
+cis_ssh_client_alive_count_max: 3
+cis_ssh_max_auth_tries: 4
+cis_ssh_max_sessions: 10
+cis_ssh_max_startups: "10:30:60"
+cis_ssh_login_grace_time: 60
+cis_ssh_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+  - aes256-ctr
+  - aes192-ctr
+  - aes128-ctr
+cis_ssh_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+  - umac-128-etm@openssh.com
+  - hmac-sha2-512
+  - hmac-sha2-256
+# Post-quantum first (OpenSSH 10.x default), classic curves kept for older
+# clients (Terraform's Go SSH library, older Ansible controllers, Packer).
+# The role intersects these lists with `ssh -Q kex|cipher|mac` on the target,
+# so names unknown to the installed OpenSSH (e.g. mlkem on 24.04's 9.6) are
+# dropped instead of making sshd refuse its config.
+cis_ssh_kex:
+  - mlkem768x25519-sha256
+  - sntrup761x25519-sha512
+  - sntrup761x25519-sha512@openssh.com
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org
+  - ecdh-sha2-nistp521
+  - ecdh-sha2-nistp384
+  - ecdh-sha2-nistp256
+  - diffie-hellman-group18-sha512
+  - diffie-hellman-group16-sha512
+  - diffie-hellman-group14-sha256
+
+# --- Shell -------------------------------------------------------------------
+# TMOUT only fires while an INTERACTIVE shell sits at the prompt. It never
+# touches non-interactive SSH commands (Ansible, Terraform, Packer).
+cis_shell_tmout: 900
+cis_default_umask: "027"
+
+# --- Firewall (ufw) ----------------------------------------------------------
+cis_manage_firewall: true
+cis_mgmt_cidrs: []                 # REQUIRED - preflight fails if empty
+cis_ufw_default_outgoing: deny     # CIS default-deny; "allow" is a documented exception
+cis_ufw_egress_rules: []
+cis_ufw_extra_ingress: []          # e.g. [{port: "443", proto: tcp, from: "10.0.0.0/8", comment: "app"}]
+cis_ufw_rollback_minutes: 5        # firewall auto-disables unless Ansible reconnects
+
+# --- Filesystems / kernel modules --------------------------------------------
+cis_disabled_fs_modules: [cramfs, freevxfs, hfs, hfsplus, jffs2]
+# Level 2 in the 22.04/24.04 benchmarks. squashfs = snapd (LXD, livepatch,
+# several vendor agents). Leave off unless you know the host has no snaps.
+cis_disable_squashfs: false
+cis_disable_udf: false
+cis_disable_usb_storage: true
+# Never add iso9660: vSphere guest customisation / OVF ISO transport uses it.
+
+# --- Mounts ------------------------------------------------------------------
+cis_manage_tmp_mount: true
+cis_tmp_tmpfs_size: 2G
+cis_manage_dev_shm: true
+cis_tmp_mount_opts: [nodev, nosuid, noexec]
+cis_dev_shm_opts: [nodev, nosuid, noexec]
+
+# --- Network sysctls ---------------------------------------------------------
+cis_is_router: false               # true on k8s nodes / container hosts / routers
+cis_ipv6_accept_ra: false          # true if the network relies on SLAAC
+cis_rp_filter: 1                   # 2 (loose) on multi-homed VMs with asymmetric routing
+
+# --- Packages / services -----------------------------------------------------
+cis_remove_packages:
+  - telnet
+  - inetutils-telnet
+  - rsh-client
+  - talk
+  - nis
+  - ftp
+  - tnftp
+  - xinetd
+  - avahi-daemon
+  - cups
+  - rpcbind                        # remove from this list on NFS clients/servers
+cis_ntp_servers: []                # empty = keep Ubuntu NTS pools
+
+# --- PAM / accounts ----------------------------------------------------------
+cis_manage_pam: true               # test on console first; see README
+cis_faillock_deny: 5
+cis_faillock_unlock_time: 900
+# pwhistory remember=24 lives in files/pam-configs/pwhistory
+cis_pwquality:
+  minlen: 14
+  minclass: 4
+  difok: 2
+  maxrepeat: 3
+  maxsequence: 3
+  dictcheck: 1
+  enforcing: 1
+cis_pass_max_days: 365
+cis_pass_min_days: 1
+cis_pass_warn_age: 7
+cis_inactive_days: 45
+
+# --- Bootloader --------------------------------------------------------------
+cis_grub_apparmor: true
+# PBKDF2 hash from `grub-mkpasswd-pbkdf2` (keep it in Vault). Empty = skip.
+# Entries are marked --unrestricted so unattended reboots never stop at a
+# password prompt; only editing entries / the GRUB shell needs the password.
+cis_grub_superuser: grubadmin
+cis_grub_password_pbkdf2: ""
+
+# --- Integrity / logging -----------------------------------------------------
+cis_aide_enabled: true
+cis_aide_init: "{{ not cis_template_build }}"   # never baseline inside a template
+cis_journald_storage: persistent
+
+# --- Banners -----------------------------------------------------------------
+cis_banner_text: |
+  Authorized uses only. All activity may be monitored and reported.
+
+# --- VMware / cloud-init -----------------------------------------------------
+cis_vmware_manage_cloudinit: false
+cis_vmware_datasource_list: [VMware, OVF, None]

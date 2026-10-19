@@ -1,0 +1,23 @@
+---
+# vSphere hands metadata to cloud-init through VMware Tools (guestinfo, via
+# vmtoolsd / vmware-rpctool) or an attached OVF ISO (iso9660). Neither uses the
+# IP network, so the host firewall does not affect them. What matters here is
+# that open-vm-tools is running and cloud-init looks at the right datasources.
+- name: VMware | open-vm-tools running
+  ansible.builtin.systemd_service:
+    name: open-vm-tools.service
+    enabled: true
+    state: started
+
+- name: VMware | cloud-init datasources and guest customisation
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/90-cis-vmware.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      datasource_list: {{ cis_vmware_datasource_list | to_json }}
+      disable_vmware_customization: false
+      # Never let cloud-init turn password SSH back on
+      ssh_pwauth: false

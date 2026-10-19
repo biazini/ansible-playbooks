@@ -1,0 +1,112 @@
+---
+# ---------------- Password policy (login.defs, useradd, pwquality) ----------
+- name: Accounts | login.defs password aging and hashing
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^\s*{{ item.key }}\s'
+    line: "{{ item.key }}\t{{ item.value }}"
+  loop:
+    - { key: PASS_MAX_DAYS, value: "{{ cis_pass_max_days }}" }
+    - { key: PASS_MIN_DAYS, value: "{{ cis_pass_min_days }}" }
+    - { key: PASS_WARN_AGE, value: "{{ cis_pass_warn_age }}" }
+    - { key: ENCRYPT_METHOD, value: "YESCRYPT" }
+    - { key: UMASK, value: "{{ cis_default_umask }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Accounts | Inactive lock for new accounts
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^#?\s*INACTIVE='
+    line: "INACTIVE={{ cis_inactive_days }}"
+
+- name: Accounts | pwquality drop-in directory
+  ansible.builtin.file:
+    path: /etc/security/pwquality.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Accounts | pwquality settings
+  ansible.builtin.copy:
+    dest: /etc/security/pwquality.conf.d/50-cis.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      {% for k, v in cis_pwquality.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+      enforce_for_root
+
+- name: Accounts | faillock settings
+  ansible.builtin.copy:
+    dest: /etc/security/faillock.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      deny = {{ cis_faillock_deny }}
+      unlock_time = {{ cis_faillock_unlock_time }}
+      audit
+
+# ---------------- PAM stack through pam-auth-update profiles ----------------
+# Public-key SSH logins (the automation path) never run the PAM auth stack, so
+# faillock cannot lock the automation account. Still: test on a console first.
+- name: Accounts | pam-auth-update profiles
+  ansible.builtin.copy:
+    src: "pam-configs/{{ item }}"
+    dest: "/usr/share/pam-configs/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [faillock, faillock_notify, pwhistory]
+  when: cis_manage_pam | bool
+  register: _cis_pam_profiles
+
+- name: Accounts | Enable the profiles
+  ansible.builtin.command: pam-auth-update --enable faillock faillock_notify pwhistory
+  when:
+    - cis_manage_pam | bool
+    - _cis_pam_profiles is changed
+  changed_when: true
+
+# ---------------- Shell defaults ---------------------------------------------
+- name: Accounts | Interactive shell timeout and umask
+  ansible.builtin.copy:
+    dest: /etc/profile.d/60-cis-shell.sh
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      # TMOUT only applies to interactive shells waiting at a prompt.
+      if [ "${TMOUT:-}" != "{{ cis_shell_tmout }}" ]; then
+        TMOUT={{ cis_shell_tmout }}
+        readonly TMOUT
+        export TMOUT
+      fi
+      umask {{ cis_default_umask }}
+
+# ---------------- Accounts with a password hash -------------------------------
+# Applies aging to existing human accounts that HAVE a password hash.
+# Key-only / locked accounts ("*", "!") are skipped on purpose.
+- name: Accounts | List users that have a real password hash
+  ansible.builtin.shell: |
+    set -o pipefail
+    awk -F: '($2 ~ /^\$.+\$/) {print $1}' /etc/shadow
+  args:
+    executable: /bin/bash
+  register: _cis_pw_users
+  changed_when: false
+  check_mode: false
+
+- name: Accounts | Apply aging to them
+  ansible.builtin.command: >-
+    chage --maxdays {{ cis_pass_max_days }} --mindays {{ cis_pass_min_days }}
+    --warndays {{ cis_pass_warn_age }} --inactive {{ cis_inactive_days }} {{ item }}
+  loop: "{{ _cis_pw_users.stdout_lines | difference([cis_automation_user]) }}"
+  changed_when: false

@@ -1,0 +1,73 @@
+---
+- name: Preflight | Supported Ubuntu release
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_version'] in cis_supported_releases
+    fail_msg: >-
+      This role targets Ubuntu {{ cis_supported_releases | join(' / ') }}; found
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}.
+    quiet: true
+
+- name: Preflight | Note when not running on 26.04
+  ansible.builtin.debug:
+    msg: >-
+      Running on {{ ansible_facts['distribution_version'] }}. Controls are aligned to the
+      26.04 baseline; reconcile against the matching CIS benchmark version.
+  when: ansible_facts['distribution_version'] != '26.04'
+
+- name: Preflight | Required variables are set
+  ansible.builtin.assert:
+    that:
+      - cis_automation_pubkeys | length > 0
+      - (not cis_manage_firewall) or (cis_mgmt_cidrs | length > 0)
+    fail_msg: >-
+      Set cis_automation_pubkeys and cis_mgmt_cidrs. Applying SSH/firewall hardening
+      without them is how hosts get locked out.
+    quiet: true
+
+- name: Preflight | Identify the connecting user and source address
+  ansible.builtin.command: printenv SSH_CLIENT
+  become: false
+  register: _cis_ssh_client
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Preflight | Groups of the connecting user
+  ansible.builtin.command: id -nG
+  become: false
+  register: _cis_conn_groups
+  changed_when: false
+  check_mode: false
+
+- name: Preflight | Connecting user name
+  ansible.builtin.command: id -un
+  become: false
+  register: _cis_conn_user
+  changed_when: false
+  check_mode: false
+
+- name: Preflight | The address Ansible connects from is inside cis_mgmt_cidrs
+  ansible.builtin.assert:
+    that:
+      - (_cis_ssh_client.stdout.split() | first) is ansible.utils.in_any_network(cis_mgmt_cidrs)
+    fail_msg: >-
+      This play connects from {{ _cis_ssh_client.stdout.split() | first }}, which is NOT in
+      cis_mgmt_cidrs {{ cis_mgmt_cidrs }}. The firewall would lock this controller out.
+    quiet: true
+  when:
+    - cis_manage_firewall | bool
+    - _cis_ssh_client.stdout | length > 0
+
+- name: Preflight | The connecting user will still pass AllowGroups
+  ansible.builtin.assert:
+    that:
+      - >-
+        (_cis_conn_user.stdout == cis_automation_user) or
+        (_cis_conn_groups.stdout.split() | intersect(cis_ssh_allow_groups) | length > 0)
+    fail_msg: >-
+      User {{ _cis_conn_user.stdout }} is not {{ cis_automation_user }} and is in none of
+      {{ cis_ssh_allow_groups }}. After sshd hardening it could not log in again.
+    quiet: true
+  when: _cis_ssh_client.stdout | length > 0

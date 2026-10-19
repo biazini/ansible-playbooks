@@ -1,0 +1,51 @@
+---
+- name: Modules | Build the list of modules to disable
+  ansible.builtin.set_fact:
+    _cis_modules_off: >-
+      {{ cis_disabled_fs_modules
+         + (['squashfs'] if cis_disable_squashfs else [])
+         + (['udf'] if cis_disable_udf else [])
+         + (['usb-storage'] if cis_disable_usb_storage else []) }}
+
+- name: Modules | Guard against disabling what VMware / snapd depend on
+  ansible.builtin.assert:
+    that:
+      - "'iso9660' not in _cis_modules_off"
+      - "'overlay' not in _cis_modules_off"
+    fail_msg: >-
+      iso9660 carries vSphere guest customisation / OVF ISO transport and overlay is
+      required by containerd/Docker. Do not disable them on this baseline.
+    quiet: true
+
+- name: Modules | modprobe.d exists
+  ansible.builtin.file:
+    path: /etc/modprobe.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Modules | Not loadable and deny-listed
+  ansible.builtin.copy:
+    dest: "/etc/modprobe.d/cis-{{ item }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      install {{ item }} /bin/false
+      blacklist {{ item }}
+  loop: "{{ _cis_modules_off }}"
+
+- name: Modules | Unload if currently loaded
+  community.general.modprobe:
+    name: "{{ item | replace('-', '_') }}"
+    state: absent
+  loop: "{{ _cis_modules_off }}"
+  failed_when: false
+
+- name: Modules | Re-enable modules removed from the list (e.g. squashfs on snap hosts)
+  ansible.builtin.file:
+    path: "/etc/modprobe.d/cis-{{ item }}.conf"
+    state: absent
+  loop: "{{ ['squashfs', 'udf', 'usb-storage'] | difference(_cis_modules_off) }}"

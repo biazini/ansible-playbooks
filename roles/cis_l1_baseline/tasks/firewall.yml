@@ -1,0 +1,101 @@
+---
+# Sequence (anti-lockout):
+#   1. arm a systemd timer that runs "ufw --force disable" in N minutes
+#   2. write rules: loopback, SSH from mgmt CIDRs, extra ingress, egress list
+#   3. set default policies, enable ufw
+#   4. drop the SSH connection and log in again
+#   5. only if that works, cancel the timer
+# If step 4 fails the play stops, the timer fires and the host is reachable again.
+
+- name: Firewall | IPv6 rules managed too
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^IPV6='
+    line: IPV6=yes
+
+- name: Firewall | Clear any previous rollback timer  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl stop cis-ufw-rollback.timer cis-ufw-rollback.service
+  changed_when: false
+  failed_when: false
+
+- name: Firewall | Reset failed rollback units
+  ansible.builtin.command: systemctl reset-failed cis-ufw-rollback.timer cis-ufw-rollback.service
+  changed_when: false
+  failed_when: false
+
+- name: Firewall | Arm automatic rollback
+  ansible.builtin.command: >-
+    systemd-run --unit=cis-ufw-rollback
+    --on-active={{ cis_ufw_rollback_minutes }}min
+    /usr/sbin/ufw --force disable
+  changed_when: true
+
+- name: Firewall | Loopback allowed in and out
+  community.general.ufw:
+    rule: allow
+    direction: "{{ item }}"
+    interface: lo
+  loop: [in, out]
+
+- name: Firewall | Spoofed loopback traffic denied on other interfaces
+  community.general.ufw:
+    rule: deny
+    direction: in
+    from_ip: "{{ item }}"
+  loop: [127.0.0.0/8, "::1"]
+
+- name: Firewall | SSH from management networks only
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    port: "{{ cis_ssh_port | string }}"
+    from_ip: "{{ item }}"
+    comment: "SSH mgmt (Ansible/Terraform/bastion)"
+  loop: "{{ cis_mgmt_cidrs }}"
+
+- name: Firewall | Extra ingress (application ports)
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: "{{ item.proto | default('tcp') }}"
+    port: "{{ item.port | string }}"
+    from_ip: "{{ item.from | default('any') }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ cis_ufw_extra_ingress }}"
+
+- name: Firewall | Egress allow-list
+  community.general.ufw:
+    rule: allow
+    direction: out
+    proto: "{{ item.proto | default('tcp') }}"
+    port: "{{ item.port | string }}"
+    to_ip: "{{ item.to | default('any') }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ cis_ufw_egress_rules }}"
+  when: cis_ufw_default_outgoing == 'deny'
+
+- name: Firewall | Default policies
+  community.general.ufw:
+    default: "{{ item.policy }}"
+    direction: "{{ item.direction }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: "{{ cis_ufw_default_outgoing }}" }
+    - { direction: routed, policy: "{{ 'allow' if cis_is_router else 'deny' }}" }
+
+- name: Firewall | Enable with logging
+  community.general.ufw:
+    state: enabled
+    logging: "low"
+
+- name: Firewall | Drop the current SSH session
+  ansible.builtin.meta: reset_connection
+
+- name: Firewall | New SSH session gets through the firewall
+  ansible.builtin.wait_for_connection:
+    timeout: 60
+
+- name: Firewall | Cancel the rollback timer  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl stop cis-ufw-rollback.timer
+  changed_when: true

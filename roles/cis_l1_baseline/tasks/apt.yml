@@ -1,0 +1,21 @@
+---
+# With /tmp noexec, apt-extracttemplates writes debconf "config" scripts to
+# /tmp and debconf then tries to execute them ("Can't exec /tmp/...config:
+# Permission denied"). Point it at a root-only directory that allows exec.
+- name: APT | Private exec-able directory for extracted templates
+  ansible.builtin.file:
+    path: /var/cache/apt/tmp
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: APT | Use it instead of /tmp
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/50cis-noexec-tmp
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Managed by Ansible (cis_l1_baseline) - /tmp is mounted noexec
+      APT::ExtractTemplates::TempDir "/var/cache/apt/tmp";

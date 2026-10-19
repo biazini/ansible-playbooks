@@ -1,0 +1,87 @@
+---
+# ---------------- Banners ------------------------------------------------------
+- name: Misc | Login banners without OS/version information
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ cis_banner_text }}"
+  loop: [/etc/issue, /etc/issue.net, /etc/motd]
+
+# ---------------- cron / at ----------------------------------------------------
+- name: Misc | cron files root-only
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/crontab, mode: "0600" }
+    - { path: /etc/cron.hourly, mode: "0700" }
+    - { path: /etc/cron.daily, mode: "0700" }
+    - { path: /etc/cron.weekly, mode: "0700" }
+    - { path: /etc/cron.monthly, mode: "0700" }
+    - { path: /etc/cron.d, mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+  failed_when: false
+
+- name: Misc | cron.allow / at.allow restrict scheduling to root
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: crontab
+    mode: "0640"
+    content: "root\n"
+    force: false
+  loop: [/etc/cron.allow]
+
+- name: Misc | Remove cron.deny (allow-list wins)
+  ansible.builtin.file:
+    path: /etc/cron.deny
+    state: absent
+
+- name: Misc | Is at installed
+  ansible.builtin.stat:
+    path: /usr/bin/at
+  register: _cis_at
+
+- name: Misc | at.allow
+  ansible.builtin.copy:
+    dest: /etc/at.allow
+    owner: root
+    group: root
+    mode: "0640"
+    content: "root\n"
+    force: false
+  when: _cis_at.stat.exists
+
+# ---------------- journald -----------------------------------------------------
+- name: Misc | journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Misc | journald persistent and compressed
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/60-cis.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      [Journal]
+      Storage={{ cis_journald_storage }}
+      Compress=yes
+  notify: Restart journald
+
+# ---------------- AppArmor -----------------------------------------------------
+- name: Misc | AppArmor running
+  ansible.builtin.systemd_service:
+    name: apparmor.service
+    enabled: true
+    state: started

@@ -1,0 +1,116 @@
+---
+- name: SSH | Main config includes the drop-in directory first
+  ansible.builtin.command: grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config
+  register: _cis_sshd_include
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: SSH | Add the Include line at the top when missing
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: Include /etc/ssh/sshd_config.d/*.conf
+    insertbefore: BOF
+  when: _cis_sshd_include.rc != 0
+
+- name: SSH | Algorithms supported by the installed OpenSSH
+  ansible.builtin.command: ssh -Q {{ item }}
+  loop: [kex, cipher, mac]
+  register: _cis_ssh_q
+  changed_when: false
+  check_mode: false
+
+- name: SSH | Keep only algorithms this OpenSSH knows
+  ansible.builtin.set_fact:
+    _cis_ssh_kex_eff: "{{ cis_ssh_kex | select('in', _cis_ssh_q.results[0].stdout_lines) | list }}"
+    _cis_ssh_ciphers_eff: "{{ cis_ssh_ciphers | select('in', _cis_ssh_q.results[1].stdout_lines) | list }}"
+    _cis_ssh_macs_eff: "{{ cis_ssh_macs | select('in', _cis_ssh_q.results[2].stdout_lines) | list }}"
+
+- name: SSH | Never end up with an empty algorithm list
+  ansible.builtin.assert:
+    that:
+      - _cis_ssh_kex_eff | length > 0
+      - _cis_ssh_ciphers_eff | length > 0
+      - _cis_ssh_macs_eff | length > 0
+    quiet: true
+
+- name: SSH | Hardening drop-in, validated, rolled back on error
+  block:
+    - name: SSH | Deploy 00-cis-hardening.conf
+      ansible.builtin.template:
+        src: 00-cis-hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/00-cis-hardening.conf
+        owner: root
+        group: root
+        mode: "0600"
+        backup: true
+      register: _cis_sshd_dropin
+
+    # Skipped in --check: nothing was written, so it would only re-test the old config.
+    - name: SSH | Validate the complete effective configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      when: not ansible_check_mode
+
+  rescue:
+    # Only undo what this run actually wrote.
+    - name: SSH | Restore previous drop-in
+      ansible.builtin.copy:
+        src: "{{ _cis_sshd_dropin.backup_file }}"
+        dest: /etc/ssh/sshd_config.d/00-cis-hardening.conf
+        remote_src: true
+        mode: "0600"
+      when:
+        - _cis_sshd_dropin is defined
+        - _cis_sshd_dropin is changed
+        - _cis_sshd_dropin.backup_file is defined
+
+    - name: SSH | Remove new drop-in (there was none before)
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/00-cis-hardening.conf
+        state: absent
+      when:
+        - _cis_sshd_dropin is defined
+        - _cis_sshd_dropin is changed
+        - _cis_sshd_dropin.backup_file is not defined
+
+    - name: SSH | Stop here
+      ansible.builtin.fail:
+        msg: "sshd -t rejected the new configuration; previous state restored. sshd was not reloaded."
+
+- name: SSH | Reload sshd when the drop-in changed  # noqa: command-instead-of-module no-handler
+  ansible.builtin.command: systemctl try-reload-or-restart ssh.service
+  when: _cis_sshd_dropin is changed
+  changed_when: true
+
+- name: SSH | sshd_config permissions
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: SSH | Find private host keys
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns: "ssh_host_*_key"
+  register: _cis_hostkeys
+
+- name: SSH | Private host keys 0600 root:root
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ _cis_hostkeys.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# Re-open the connection: proves the automation user still gets in with the
+# new sshd settings before anything else (firewall) is touched.
+- name: SSH | Reconnect with the hardened configuration
+  ansible.builtin.meta: reset_connection
+
+- name: SSH | Fresh login works
+  ansible.builtin.wait_for_connection:
+    timeout: 60

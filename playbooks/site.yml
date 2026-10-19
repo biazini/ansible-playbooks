@@ -1,0 +1,11 @@
+---
+# Apply the baseline. First run on a host: use --limit, --diff and keep a
+# console (vSphere web console) open. Example:
+#   ansible-playbook playbooks/site.yml --limit lab-ubu2604-01 --diff
+- name: CIS Level 1 Server baseline (Ubuntu 26.04)
+  hosts: ubuntu_cis_l1:bastions
+  become: true
+  serial: "{{ cis_serial | default('20%') }}"
+  max_fail_percentage: 0
+  roles:
+    - role: cis_l1_baseline

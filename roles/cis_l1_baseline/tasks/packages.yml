@@ -1,0 +1,39 @@
+---
+- name: Packages | Required tooling present
+  ansible.builtin.apt:
+    name:
+      - apparmor
+      - apparmor-utils
+      - libpam-pwquality
+      - chrony
+      - acl          # lets Ansible become an unprivileged user without world-readable tmp files
+      - ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Packages | open-vm-tools on VMware guests
+  ansible.builtin.apt:
+    name: open-vm-tools
+    state: present
+  when: ansible_facts['virtualization_type'] | default('') == 'VMware'
+
+- name: Packages | Legacy / unneeded services absent
+  ansible.builtin.apt:
+    name: "{{ cis_remove_packages }}"
+    state: absent
+    purge: true
+
+- name: Packages | Only one firewall front-end (CIS)
+  ansible.builtin.apt:
+    name: [iptables-persistent, firewalld]
+    state: absent
+  when: cis_manage_firewall | bool
+
+- name: Packages | Single time daemon - mask systemd-timesyncd if present
+  ansible.builtin.systemd_service:
+    name: systemd-timesyncd.service
+    enabled: false
+    masked: true
+    state: stopped
+  failed_when: false

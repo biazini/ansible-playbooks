@@ -1,0 +1,43 @@
+---
+- name: Automation | Group exists
+  ansible.builtin.group:
+    name: "{{ cis_automation_group }}"
+    system: true
+    state: present
+
+- name: Automation | User exists, key-only, never expires
+  ansible.builtin.user:
+    name: "{{ cis_automation_user }}"
+    group: "{{ cis_automation_group }}"
+    shell: /bin/bash
+    create_home: true
+    password: "{{ cis_automation_password }}"
+    update_password: always
+    expires: -1
+    state: present
+
+# chage -M -1 / -I -1: a password-aging policy pushed later can never expire
+# this account and break key-based logins mid-pipeline (UsePAM yes).
+- name: Automation | Disable password aging on the automation account
+  ansible.builtin.command: chage -M -1 -m 0 -I -1 -E -1 {{ cis_automation_user }}
+  changed_when: false
+
+- name: Automation | Authorized keys (exclusive)
+  ansible.posix.authorized_key:
+    user: "{{ cis_automation_user }}"
+    key: "{{ cis_automation_pubkeys | join('\n') }}"
+    exclusive: true
+    state: present
+  # In --check on a fresh host the user does not exist yet
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Automation | Group allowed to sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/20-automation
+    owner: root
+    group: root
+    mode: "0440"
+    content: |
+      # Managed by Ansible (cis_l1_baseline)
+      %{{ cis_automation_group }} ALL=(ALL:ALL) {{ 'NOPASSWD: ' if cis_automation_nopasswd else '' }}ALL
+    validate: visudo -cf %s

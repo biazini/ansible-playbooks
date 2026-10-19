@@ -1,0 +1,26 @@
+---
+# Runs scripts/cis-l1-smoke.sh on the targets after site.yml (and after the
+# reboot that applies the /tmp mount options). Quick checks, not an audit.
+- name: CIS L1 smoke test
+  hosts: ubuntu_cis_l1:bastions
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run the smoke script
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../scripts/cis-l1-smoke.sh"
+      environment:
+        CIS_AUTOMATION_USER: "{{ cis_automation_user | default('svc_ansible') }}"
+      register: _smoke
+      changed_when: false
+      failed_when: false
+
+    - name: Results
+      ansible.builtin.debug:
+        msg: "{{ _smoke.stdout_lines }}"
+
+    - name: Fail when any check failed
+      ansible.builtin.assert:
+        that: _smoke.rc == 0
+        fail_msg: "Smoke test reported failures (see Results above)."
+        quiet: true

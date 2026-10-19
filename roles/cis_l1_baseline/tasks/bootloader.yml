@@ -1,0 +1,68 @@
+---
+- name: GRUB | Is GRUB installed
+  ansible.builtin.stat:
+    path: /etc/default/grub
+  register: _cis_grub
+
+- name: GRUB | Bootloader controls
+  when: _cis_grub.stat.exists
+  block:
+    - name: GRUB | grub.d drop-in directory
+      ansible.builtin.file:
+        path: /etc/default/grub.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: GRUB | AppArmor enabled on the kernel command line
+      ansible.builtin.copy:
+        dest: /etc/default/grub.d/99-cis-apparmor.cfg
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by Ansible (cis_l1_baseline)
+          GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX apparmor=1 security=apparmor"
+      when: cis_grub_apparmor | bool
+      notify: Update grub
+
+    # Optional bootloader password. --unrestricted keeps unattended boots working:
+    # booting any entry needs no password, editing entries / the GRUB shell does.
+    # Without --unrestricted every reboot of a VM would stop at a password prompt.
+    - name: GRUB | Superuser and password
+      ansible.builtin.copy:
+        dest: /etc/grub.d/01_cis_password
+        owner: root
+        group: root
+        mode: "0700"
+        content: |
+          #!/bin/sh
+          # Managed by Ansible (cis_l1_baseline)
+          cat <<'EOF'
+          set superusers="{{ cis_grub_superuser }}"
+          password_pbkdf2 {{ cis_grub_superuser }} {{ cis_grub_password_pbkdf2 }}
+          EOF
+      when: cis_grub_password_pbkdf2 | length > 0
+      no_log: true
+      notify: Update grub
+
+    - name: GRUB | Mark menu entries unrestricted
+      ansible.builtin.lineinfile:
+        path: /etc/grub.d/10_linux
+        regexp: '^CLASS="--class gnu-linux --class gnu --class os'
+        line: CLASS="--class gnu-linux --class gnu --class os --unrestricted"
+      when: cis_grub_password_pbkdf2 | length > 0
+      notify: Update grub
+
+- name: GRUB | Flush grub handlers before fixing permissions
+  ansible.builtin.meta: flush_handlers
+
+- name: GRUB | grub.cfg readable by root only
+  ansible.builtin.file:
+    path: /boot/grub/grub.cfg
+    owner: root
+    group: root
+    mode: "0600"
+  when: _cis_grub.stat.exists
+  failed_when: false
