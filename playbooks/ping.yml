@@ -1,5 +1,12 @@
 ---
-# Connectivity check: SSH login, privilege escalation and basic facts.
+# =============================================================================
+# Connectivity check
+#
+# What:  proves that Ascender can reach the host over SSH with the machine
+#        credential, that privilege escalation works, and reports OS/kernel.
+# When:  after adding a host, after bootstrap, after network or SSH changes.
+# Safe:  read-only, runs against every host in the inventory.
+# =============================================================================
 - name: Connectivity and sudo check
   hosts: all
   become: true
@@ -8,6 +15,8 @@
     - name: Ping
       ansible.builtin.ping:
 
+    # Facts are gathered with become, so they report root. Ask for the SSH
+    # login user without escalation to show which account really connected.
     - name: Remote login user (before privilege escalation)
       ansible.builtin.command: id -un
       become: false

@@ -1,19 +1,28 @@
 ---
-# Runs scripts/cis-l1-smoke.sh on the targets after site.yml (and after the
-# reboot that applies the /tmp mount options). Quick checks, not an audit.
+# =============================================================================
+# CIS L1 smoke test
+#
+# What:  copies roles/cis_l1_baseline/files/cis-l1-smoke.sh to each host and
+#        runs it as root. The script checks the effective state (mount
+#        options, sshd -T, ufw, sysctl, services, automation account).
+# When:  after site.yml AND after the reboot that applies the /tmp options.
+# Note:  quick self-check, not a compliance audit (use USG / CIS-CAT for that).
+# =============================================================================
 - name: CIS L1 smoke test
   hosts: ubuntu_cis_l1:bastions
   become: true
   gather_facts: false
   tasks:
+    # The script module uploads to remote_tmp (~/.ansible/tmp, not noexec) and
+    # executes it there, so /tmp being noexec does not affect it.
     - name: Run the smoke script
       ansible.builtin.script:
-        cmd: "{{ playbook_dir }}/../scripts/cis-l1-smoke.sh"
+        cmd: "{{ playbook_dir }}/../roles/cis_l1_baseline/files/cis-l1-smoke.sh"
       environment:
         CIS_AUTOMATION_USER: "{{ cis_automation_user | default('svc_ansible') }}"
       register: _smoke
       changed_when: false
-      failed_when: false
+      failed_when: false   # always show the full report, fail afterwards
 
     - name: Results
       ansible.builtin.debug:

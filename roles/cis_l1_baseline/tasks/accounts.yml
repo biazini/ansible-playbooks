@@ -1,4 +1,9 @@
 ---
+# Password policy, PAM and shell defaults for human accounts.
+# PAM changes go through pam-auth-update profiles (files/pam-configs), the
+# supported way on Ubuntu, instead of editing /etc/pam.d by hand.
+# Key-based SSH logins (the automation path) never run the PAM auth stack,
+# so faillock cannot lock out the automation account.
 # ---------------- Password policy (login.defs, useradd, pwquality) ----------
 - name: Accounts | login.defs password aging and hashing
   ansible.builtin.lineinfile:

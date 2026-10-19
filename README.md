@@ -1,147 +1,149 @@
-# Ubuntu 26.04 LTS - CIS Level 1 Server baseline (automation-safe)
+# Ansible automation
 
-Ansible role that applies the CIS Ubuntu Linux 26.04 LTS **Level 1 - Server**
-profile to VMware VMs built and managed with Packer, Terraform and Ansible,
-without breaking the automation that builds and manages them.
+Playbooks, roles and inventories for the Linux estate, run from
+**Ascender** (CIQ's distribution of AWX). Git is the source of truth:
+Ascender pulls this repository, and every change to a host comes from a
+commit here.
 
-> Status, 19 Oct 2026: CIS published *Ubuntu Linux 26.04 LTS Benchmark v1.0.0*
-> (Sep 2026). This role is written from the 22.04/24.04 control set plus the
-> 26.04 platform changes (sudo-rs, chrony, OpenSSH 10.2). **Download the 26.04
-> PDF and reconcile control numbers and levels before claiming compliance.**
-> Audit with an independent tool, not with this role.
+![Repository, Ascender and managed hosts](docs/architecture.drawio.svg)
+
+> The diagrams are `.drawio.svg` files. GitHub shows them as images, and
+> draw.io (desktop, web or the VS Code extension) opens and edits them
+> directly. Save them in the same format to keep both.
 
 ---
 
-## 1. Tooling decision
+## Repository layout
 
-| Option | Use when | Notes |
+```
+ansible.cfg                  shared Ansible settings (picked up by Ascender)
+collections/requirements.yml collections, installed by Ascender on project sync
+inventories/
+  lab/                       one folder per environment
+    hosts.yml                hosts and groups
+    group_vars/              variables per group (all.yml = every host)
+playbooks/                   entry points, one file per job
+roles/
+  <role>/                    reusable logic, documented in its own README
+docs/                        repository-level diagrams
+```
+
+| Path | What it is | Why it is organised this way |
 |---|---|---|
-| **Ubuntu Security Guide (USG)** - `usg audit` / `usg fix` + tailoring file | Hosts have Ubuntu Pro | Canonical-maintained. Check `pro status` on 26.04 for the `usg` service and a 26.04 profile before relying on it. Tailor with `usg generate-tailoring cis_level1_server tailor.xml`. |
-| **ansible-lockdown UBUNTU26-CIS** | Want a community full-coverage role | Remediation role marked "coming soon" at time of writing; the **UBUNTU26-CIS-Audit** (goss) repo exists - use it to audit. |
-| **This role** | Need L1 now, with explicit automation exceptions | Small, readable, every deviation is a variable. |
-| **CIS-CAT Pro / Build Kits** | Formal evidence for auditors | Requires CIS SecureSuite membership. |
+| `playbooks/` | Short files that say *which hosts* get *which roles/tasks* | Each Ascender job template points at one playbook. Keeping them thin means the logic is written once, in a role, and reused by several playbooks. |
+| `roles/` | Self-contained units: `tasks/`, `defaults/`, `handlers/`, `templates/`, `files/`, `README.md` | A role can be tested, versioned and documented on its own. `defaults/main.yml` lists every tunable with its default, so the role documents its own interface. |
+| `inventories/<env>/` | Hosts, groups and the variables that make an environment different | Separating environments (lab, prod, ...) means the same playbook runs everywhere with different values. Inventory variables override role defaults. |
+| `collections/requirements.yml` | External collections (`community.general`, `ansible.posix`, `ansible.utils`) | Ascender installs them automatically on every project sync, so jobs never depend on what happens to be installed in the execution environment. |
+| `ansible.cfg` | Pipelining, SSH keep-alive, `remote_tmp` in `$HOME` | Settings that must hold for every job, including on hardened hosts where `/tmp` is `noexec`. Each line is commented in the file. |
+| `docs/` | Diagrams | Architecture lives next to the code it describes and changes in the same commit. |
 
-Recommended: **this role (or USG) to remediate, a different tool to audit.**
+### Roles
 
----
-
-## 2. The four "pitfalls" - what is actually true
-
-| # | Claim | Reality | What the role does |
-|---|---|---|---|
-| 1 | `noexec` on `/tmp` breaks Ansible | Mostly **false**. Ansible's default `remote_tmp` is `~/.ansible/tmp` (under `/home`), and modules run as `python3 AnsiballZ_*.py` - an interpreter reading a file is not blocked by noexec. What really breaks: **Terraform `remote-exec`** (uploads `/tmp/terraform_%RAND%.sh` and executes it), **Packer `shell`** (default `remote_folder=/tmp`), Ansible `script` module, vendor installers, and **debconf** (`apt-extracttemplates` runs config scripts from `/tmp`). Moving Ansible tmp to `/var/tmp` (as often suggested) is wrong: `/var/tmp` is also noexec under CIS. | Keeps noexec. `pipelining=true`. APT redirected to `/var/cache/apt/tmp`. Terraform `script_path` and Packer `remote_folder`/`execute_command` examples in `examples/`. |
-| 2 | Default-deny firewall breaks cloud-init / VMware Tools | **Wrong mechanism.** vSphere metadata reaches cloud-init via VMware Tools (guestinfo through `vmtoolsd`/`vmware-rpctool`) or an attached OVF ISO - not via IP, so ufw cannot block it. What a default-deny **outbound** policy really breaks: DNS, DHCP, NTP/NTS (tcp/4460 on 26.04), APT/proxy, Kerberos/LDAP for AD join, syslog/agents. And the real risk is **locking yourself out** while enabling it. | Explicit egress allow-list; SSH only from `cis_mgmt_cidrs`; preflight aborts if the controller IP is outside them; **systemd timer auto-disables ufw** unless Ansible reconnects. |
-| 3 | SSH `ClientAlive*` / `TMOUT` drop long Terraform/Ansible runs | **False.** `ClientAliveInterval`/`CountMax` detect *dead* peers - a live session answers the probe however long a task runs. `TMOUT` only applies to *interactive* shells waiting at a prompt; it never touches non-interactive SSH commands. What really bites automation: `AllowGroups` not including the automation user, `MaxAuthTries 4` with an ssh-agent full of keys, `DisableForwarding` on bastions (ProxyJump), `GSSAPIAuthentication no` with AD SSO, KEX lists too strict for old clients, and cloud-init's `50-cloud-init.conf` re-enabling password auth. | CIS values kept (15/3, 900s). `ServerAlive*` in `ansible.cfg`; `IdentitiesOnly=yes` only for local runs with `--private-key` (it breaks Ascender's ssh-agent keys). Drop-in `00-cis-hardening.conf` (first value wins in sshd), validated with `sshd -t` and rolled back on error; reconnect test after reload. |
-| 4 | Disabling filesystem modules breaks cloud-init on ESXi | The L1 list (`cramfs`, `freevxfs`, `hfs`, `hfsplus`, `jffs2`, `usb-storage`) does not include what vSphere uses (`iso9660`). The modules that *do* hurt are **`squashfs` (kills snapd)** and `udf` - both Level 2 in 22.04/24.04 - and over-eager scripts that also disable `overlay`, `fuse`, `nfs`, `cifs`. | L1 list only; squashfs/udf opt-in; assertion refuses `iso9660` and `overlay`. |
-
----
-
-## 3. Other things that break automation (and how they are handled)
-
-| Area | Trap | Handling |
+| Role | Purpose | Documentation |
 |---|---|---|
-| Accounts | Password aging/expiry applied to the automation account -> with `UsePAM yes` an expired account cannot log in, even with a key | Automation account has `*` as password (no hash), `chage -M -1 -I -1 -E -1`; aging applied only to accounts with a real hash |
-| PAM | Broken faillock/pwhistory stack locks humans out | Done via `pam-auth-update` profiles; key-based SSH never runs the PAM auth stack. **Test on a console first.** |
-| sudo | 26.04 uses **sudo-rs**: `Defaults logfile` and I/O logging not supported, `use_pty` on by default | Role detects sudo-rs and skips `logfile`; logging comes from journald. Document this for the "sudo log file" control. |
-| sudo | `NOPASSWD` | Level 2 in 22.04/24.04, so allowed at L1 for the automation group - confirm in the 26.04 PDF |
-| GRUB | Bootloader password without `--unrestricted` -> every unattended reboot stops at a prompt | Optional; entries marked `--unrestricted` |
-| AIDE | Baseline built inside the template | Never initialised when `cis_template_build=true`; init at first config run |
-| sysctl | `ip_forward=0` on k8s/container hosts; `rp_filter=1` on multi-homed VMs; `accept_ra=0` with SLAAC | `cis_is_router`, `cis_rp_filter`, `cis_ipv6_accept_ra` |
-| sysctl | ufw re-applies `/etc/ufw/sysctl.conf` and overrides CIS values | `IPT_SYSCTL` pointed at `/etc/sysctl.d/60-cis.conf` |
-| sysctl | apport (crash reporter) writes `fs.suid_dumpable=2` every time it starts | apport disabled (`cis_disable_apport`), also a CIS L1 control |
-| Mounts | Remounting `/tmp` live hides files of running processes | fstab only, applied at reboot (`cis_allow_reboot`) |
-| Firewall | `ufw limit` on SSH throttles Ansible/Packer bursts | Plain allow from mgmt CIDRs, no rate limit |
-| Disk layout | Separate `/var`, `/var/log`, `/var/log/audit`, `/var/tmp`, `/home` | Decide in Packer autoinstall (Level 2 in 22.04/24.04) |
-| auditd | Level 2 in 22.04/24.04. If added, `admin_space_left_action=halt` stops the VM when the disk fills; `-e 2` makes rule changes need a reboot | Not in this role |
+| `cis_l1_baseline` | CIS Level 1 Server hardening for Ubuntu 26.04 / 24.04, safe for unattended automation | [roles/cis_l1_baseline/README.md](roles/cis_l1_baseline/README.md) |
+
+### Playbooks
+
+| Playbook | Hosts | What it does |
+|---|---|---|
+| `bootstrap.yml` | `ubuntu_cis_l1`, `bastions` | One-off per host: creates the key-only automation account `svc_ansible`, using an existing sudo user whose password is typed at launch |
+| `ping.yml` | all | Connectivity check: SSH login, sudo, OS and kernel |
+| `site.yml` | `ubuntu_cis_l1`, `bastions` | Applies `cis_l1_baseline` (check mode for the dry run) |
+| `smoke.yml` | `ubuntu_cis_l1`, `bastions` | Runs the CIS smoke script and fails if any check fails |
+| `seal-template.yml` | all | Image builds only: removes host identity before a VM becomes a template |
 
 ---
 
-## 4. Exceptions register (fill in before go-live)
+## How Ascender runs this repository
 
-| Control (24.04 wording) | Deviation | Scope | Justification | Compensating control |
-|---|---|---|---|---|
-| sshd DisableForwarding | `no` | `bastions` group | ProxyJump for automation | SSH only from mgmt CIDRs, MFA on bastion |
-| ufw default deny outgoing | allow-list | all | Required egress only | Rules reviewed per release |
-| sudo log file | journald instead of `logfile` | all (sudo-rs) | Not supported by sudo-rs | Journald persistent + central log |
-| squashfs disabled | not disabled | hosts with snaps | snapd dependency | Snap confinement / AppArmor |
-| ip_forward = 0 | `1` | k8s nodes | CNI routing | NetworkPolicy, node firewall |
-| _add yours_ | | | | |
+Everything lives in organization **Linux Infrastructure**.
+
+| Ascender object | Name | Points to |
+|---|---|---|
+| Project | Linux Playbooks | this repository, branch `main`, credential `GitHub - ansible-playbooks` |
+| Inventory | Linux Inventory | inventory source `Linux Playbooks - lab` -> `inventories/lab/hosts.yml` (also loads `group_vars/`) |
+| Credential (source control) | GitHub - ansible-playbooks | GitHub user + fine-grained token, read-only on this repository |
+| Credential (machine) | Ubuntu VM - svc_ansible (SSH key) | key-only automation account, sudo without password |
+| Credential (machine) | Ubuntu VM - bootstrap (gfilho) | existing sudo user; SSH and sudo passwords asked at launch, never stored |
+| Job templates | Ubuntu VM - Bootstrap automation user, Ubuntu VM - Ping, Ubuntu CIS L1 - Check (dry run), Ubuntu CIS L1 - Apply, Ubuntu CIS L1 - Smoke test | project + inventory + credential + playbook |
+| Team | Linux Team | team of the organization; grant it roles on the templates it should run |
+
+What happens on every job launch:
+
+1. The **inventory source** syncs from Git (`update on launch`), so new hosts
+   and variable changes are picked up without a manual step.
+2. The **execution environment** (Ascender-EE: ansible-core 2.16 plus
+   collections) starts in a pod and checks out the project revision.
+3. Ascender loads the **machine credential** into an ssh-agent and runs the
+   playbook. That is why `ansible.cfg` must not set `IdentitiesOnly=yes`:
+   with it, ssh ignores keys that come from the agent.
+
+Push to `main`, then **Sync** the project (or enable "update revision on
+launch") for jobs to use the new commit.
+
+### Secrets
+
+No secret is stored in this repository. Passwords, tokens and private keys
+live in Ascender credentials, which are encrypted in its database and handed
+to the job only at run time. `.gitignore` blocks the usual key and vault files
+as a second line of defence. The public key of the automation account is in
+`inventories/lab/group_vars/all.yml` on purpose: it is not secret and the role
+installs it on every host.
 
 ---
 
-## 5. Rollout
+## Lab network path
+
+The lab host is an Ubuntu VM in VirtualBox on the same Windows workstation
+that runs Ascender in WSL2 (k3s). The VM uses VirtualBox NAT, so it is not
+reachable from the network on its own:
+
+```
+Ascender job pod --> 10.42.0.1:2223   relay on the WSL host (systemd unit vbox-ubuntu-ssh-relay, socat)
+                 --> 127.0.0.1:2222  VirtualBox NAT port forward "ssh-ascender" (loopback only)
+                 --> VM :22
+```
+
+- Pods live on the k3s network (10.42.x) and cannot reach the Windows
+  loopback, where VirtualBox listens. The relay listens only on the k3s
+  bridge (10.42.0.1), so it is not exposed to the LAN.
+- Inside the VM every connection arrives from the NAT gateway `10.0.2.2`, so
+  that is the only address the CIS firewall allows for SSH (`cis_mgmt_cidrs`).
+- VirtualBox runs on top of Hyper-V (needed by WSL2). In that mode, live
+  snapshots that save the VM memory are extremely slow. Take snapshots with the
+  VM powered off, which only snapshots the disk and takes seconds.
+
+---
+
+## Adding things
+
+**A host**: add it to `inventories/<env>/hosts.yml` under the right group,
+commit and push. The inventory source syncs on the next job. For a new Ubuntu
+server, run *Bootstrap*, then *Ping*, then the role's own run order (for CIS:
+*Check*, *Apply*, reboot, *Smoke test*).
+
+**A role**: create `roles/<name>/` with at least `tasks/main.yml`,
+`defaults/main.yml` (every variable, with comments) and a `README.md` that
+explains what the role changes and why. Prefix its variables with a short role
+prefix, as `cis_` does, so they are easy to find in `group_vars`.
+
+**A playbook**: a new file in `playbooks/` that targets a group and calls
+roles. Then create a job template in Ascender (organization Linux
+Infrastructure, project Linux Playbooks, inventory Linux Inventory) and give
+the Linux Team access to it.
+
+**A collection**: add it to `collections/requirements.yml` with a minimum
+version. Ascender installs it on the next project sync.
+
+## Local checks before pushing
 
 ```bash
-pip install ansible-core netaddr
 ansible-galaxy collection install -r collections/requirements.yml
-
-# 1. Edit inventories/<env>/group_vars/all.yml (keys, mgmt CIDRs, egress, NTP)
-# 2. Lab VM, vSphere console open:
-ansible-playbook playbooks/site.yml --limit lab-ubu2604-01 --check --diff
-ansible-playbook playbooks/site.yml --limit lab-ubu2604-01 --diff
-# 3. Reboot (applies /tmp), then:
-sudo ./scripts/cis-l1-smoke.sh
-# 4. Independent audit (USG / CIS-CAT / UBUNTU26-CIS-Audit), fix or register exceptions
-# 5. Packer golden image: site.yml -e cis_template_build=true, then seal-template.yml
-# 6. Fleet: serial 20%, max_fail_percentage 0
 ```
-
-Re-run the playbook on a schedule (Ascender/AWX schedule, see section 7): package updates
-(grub, openssh) can revert permissions or files.
-
-### Host-type overrides
-
-| Host type | Variables |
-|---|---|
-| Bastion | `cis_ssh_disable_forwarding: false` |
-| Kubernetes / Docker | `cis_is_router: true`; review ufw vs CNI (Docker bypasses ufw) |
-| NFS client/server | remove `rpcbind` from `cis_remove_packages` |
-| Snap workloads (LXD, livepatch) | keep `cis_disable_squashfs: false` |
-| AD-joined with Kerberos SSO | `cis_ssh_gssapi: true`, egress 88/389/636/464 to DCs |
-| Multi-NIC asymmetric routing | `cis_rp_filter: 2` (exception) |
-
----
-
-## 6. Layout
-
+```bash
+ansible-playbook --syntax-check playbooks/*.yml
 ```
-ansible.cfg                     pipelining, ServerAlive, IdentitiesOnly, remote_tmp in $HOME
-collections/requirements.yml    collections (Ascender installs them on project sync)
-inventories/lab/                VirtualBox lab VM managed by Ascender (hosts + group_vars)
-inventories/example/            reference inventory for a vSphere estate
-playbooks/bootstrap.yml         one-off: create the key-only automation account (svc_ansible)
-playbooks/ping.yml              connectivity + sudo check
-playbooks/site.yml              apply baseline
-playbooks/smoke.yml             run scripts/cis-l1-smoke.sh on the targets
-playbooks/seal-template.yml     Packer: clean identity before template conversion
-roles/cis_l1_baseline/          the role (defaults = every tunable/exception)
-examples/                       Terraform connection block, Packer fragment
-scripts/cis-l1-smoke.sh         quick post-run checks (not an audit)
+```bash
+ansible-lint
 ```
-
----
-
-## 7. Ascender (AWX)
-
-Objects in organization **Linux Infrastructure**:
-
-| Object | Name | Notes |
-|---|---|---|
-| Project | Linux Playbooks | this repo, branch `main`, credential `GitHub - ansible-playbooks` |
-| Inventory | Linux Inventory | source `Linux Playbooks` -> `inventories/lab/hosts.yml` (group_vars come with it) |
-| Credential | Ubuntu VM - bootstrap (gfilho) | Machine; password and become password **prompted at launch** |
-| Credential | Ubuntu VM - svc_ansible (SSH key) | Machine; key-only automation account, sudo NOPASSWD |
-| Job template | Ubuntu VM - Bootstrap automation user | `playbooks/bootstrap.yml`, bootstrap credential, run once |
-| Job template | Ubuntu VM - Ping | `playbooks/ping.yml` |
-| Job template | Ubuntu CIS L1 - Check (dry run) | `playbooks/site.yml`, check mode + diff |
-| Job template | Ubuntu CIS L1 - Apply | `playbooks/site.yml`, diff |
-| Job template | Ubuntu CIS L1 - Smoke test | `playbooks/smoke.yml` |
-
-Order for a new host: add it to `inventories/lab/hosts.yml` -> sync the
-inventory source -> **Bootstrap** (enter the sudo user's password) -> **Ping**
--> **Check (dry run)** -> snapshot the VM -> **Apply** (keep the VM console
-open) -> reboot -> **Smoke test**.
-
-After **Apply**: SSH accepts keys only, from `cis_mgmt_cidrs` only, for members
-of `automation` or `sshusers`. Add human admins to `sshusers` (and give them a
-key) before applying, or use the VM console.

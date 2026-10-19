@@ -1,4 +1,7 @@
 ---
+# Kernel and network parameters (templates/60-cis.conf.j2) and core dumps.
+# ufw re-applies its own /etc/ufw/sysctl.conf on start, which would undo
+# values here, so ufw is pointed at the CIS file instead.
 - name: Sysctl | CIS parameters
   ansible.builtin.template:
     src: 60-cis.conf.j2

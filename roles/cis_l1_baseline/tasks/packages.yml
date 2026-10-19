@@ -1,4 +1,9 @@
 ---
+# Packages and services.
+#   - installs what the other tasks need (apparmor, pwquality, chrony, ufw, acl)
+#   - removes legacy / unneeded network services (CIS "services not installed")
+#   - keeps a single firewall front-end (ufw) and a single time daemon (chrony)
+#   - disables automatic error reporting (apport)
 - name: Packages | Required tooling present
   ansible.builtin.apt:
     name:

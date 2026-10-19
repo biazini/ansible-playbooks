@@ -1,4 +1,6 @@
 ---
+# Smaller CIS controls: login banners without OS details, cron/at limited
+# to root, persistent journald, AppArmor running.
 # ---------------- Banners ------------------------------------------------------
 - name: Misc | Login banners without OS/version information
   ansible.builtin.copy:

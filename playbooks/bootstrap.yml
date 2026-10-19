@@ -1,8 +1,15 @@
 ---
-# One-off, before the first site.yml run on a new host.
-# Runs as an existing sudo user with password (Ascender prompts for it at launch)
-# and creates the key-only automation account that every other playbook uses:
-# user + group, authorized key (cis_automation_pubkeys), NOPASSWD sudo rule.
+# =============================================================================
+# Bootstrap the automation account (run once per new host)
+#
+# What:  creates the key-only account every other playbook uses: user and
+#        group, authorized key (cis_automation_pubkeys), NOPASSWD sudo rule.
+#        Reuses the role's automation_user.yml, so there is one definition.
+# How:   connects as an existing sudo user with a password. In Ascender the
+#        "Ubuntu VM - bootstrap (gfilho)" credential asks for the SSH and sudo
+#        passwords at launch, so no password is stored anywhere.
+# After: switch to the "svc_ansible (SSH key)" credential for everything else.
+# =============================================================================
 - name: Bootstrap the automation account
   hosts: ubuntu_cis_l1:bastions
   become: true

@@ -1,7 +1,11 @@
+# Retry files from failed local runs
 *.retry
+# Secrets never go to Git: vault passwords, private keys. Credentials live in
+# Ascender (Resources -> Credentials).
 .vault_pass*
 *.pem
 id_*
 !id_*.pub
+# Local Ansible state and collections installed by ansible-galaxy
 .ansible/
 collections/ansible_collections/

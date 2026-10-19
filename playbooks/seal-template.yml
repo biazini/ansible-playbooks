@@ -1,7 +1,14 @@
 ---
-# Run by Packer as the LAST provisioner, after site.yml with
-# -e cis_template_build=true. Leaves the VM ready to be converted to a vSphere
-# template: no host identity, no AIDE baseline, cloud-init ready to run again.
+# =============================================================================
+# Seal a VM before it becomes a golden image / template
+#
+# What:  removes per-machine identity so every clone starts unique: apt cache,
+#        AIDE database, SSH host keys, cloud-init state, machine-id, logs and
+#        shell history.
+# When:  only in an image build (e.g. Packer), as the LAST step, after
+#        site.yml ran with -e cis_template_build=true. Never on a live server:
+#        it deletes the host keys and the machine-id.
+# =============================================================================
 - name: Seal the VM before converting it to a template
   hosts: all
   become: true

@@ -1,11 +1,14 @@
 ---
-# Installed automatically by Ascender on project sync (collections/requirements.yml).
-# Local runs: ansible-galaxy collection install -r collections/requirements.yml
-# Controller also needs: pip install netaddr   (used by the anti-lockout preflight)
+# Collections used by the playbooks and roles in this repository.
+# Ascender installs them automatically on every project sync, because the
+# file lives at collections/requirements.yml.
+# Local runs:  ansible-galaxy collection install -r collections/requirements.yml
+# The controller also needs the Python package netaddr (pip install netaddr),
+# used by the ansible.utils network filters (CIS anti-lockout preflight).
 collections:
-  - name: community.general
+  - name: community.general   # ufw, modprobe
     version: ">=9.0.0"
-  - name: ansible.posix
+  - name: ansible.posix       # authorized_key, mount
     version: ">=1.5.0"
-  - name: ansible.utils
+  - name: ansible.utils       # in_any_network test
     version: ">=4.0.0"

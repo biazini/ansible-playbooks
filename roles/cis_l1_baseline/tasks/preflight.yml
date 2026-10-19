@@ -1,4 +1,11 @@
 ---
+# Anti-lockout checks, run before any change (tag: always).
+# Refuses to continue when the host or the variables would leave the
+# automation unable to log in again after SSH/firewall hardening:
+#   - unsupported Ubuntu release
+#   - no automation public key or no management networks defined
+#   - the address Ansible connects from is outside cis_mgmt_cidrs
+#   - the connecting user would not pass sshd AllowGroups
 - name: Preflight | Supported Ubuntu release
   ansible.builtin.assert:
     that:

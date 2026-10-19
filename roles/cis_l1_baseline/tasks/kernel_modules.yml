@@ -1,4 +1,8 @@
 ---
+# Filesystem and USB storage kernel modules (CIS "ensure X is not available").
+# Each module gets "install X /bin/false" + "blacklist X" in /etc/modprobe.d
+# and is unloaded if loaded. Modules that platforms rely on (iso9660 for
+# vSphere/cloud-init media, overlay for containers) are refused on purpose.
 - name: Modules | Build the list of modules to disable
   ansible.builtin.set_fact:
     _cis_modules_off: >-

@@ -1,4 +1,11 @@
 ---
+# Entry point of the role. Order matters:
+#   1. preflight + automation account first: if anything below goes wrong,
+#      Ansible can still log in and fix it.
+#   2. system settings (packages ... AIDE) in the middle.
+#   3. SSH hardening is re-tested by reconnecting before moving on.
+#   4. firewall last, with an automatic rollback timer.
+# Every block has a tag, so a subset can be re-applied, e.g. --tags ssh,sudo.
 - name: Preflight (anti-lockout checks)
   ansible.builtin.import_tasks: preflight.yml
   tags: [always]

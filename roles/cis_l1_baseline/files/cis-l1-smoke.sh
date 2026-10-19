@@ -3,7 +3,8 @@
 # shellcheck disable=SC2015  # ok()/ko() always return 0
 # NOT a compliance audit - use CIS-CAT Pro, USG (Ubuntu Pro) or
 # ansible-lockdown/UBUNTU26-CIS-Audit (goss) for that.
-# Usage: sudo ./cis-l1-smoke.sh
+# Usage: playbooks/smoke.yml (Ascender "Ubuntu CIS L1 - Smoke test"),
+#        or on the host: sudo ./cis-l1-smoke.sh
 set -u
 
 pass=0; fail=0

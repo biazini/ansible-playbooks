@@ -1,7 +1,10 @@
 ---
 # yamllint disable rule:commas
 # ---------------------------------------------------------------------------
-# Lab values (VirtualBox VM managed by Ascender). Role defaults hold the rest.
+# Variables for every host in the lab inventory.
+# Only site-specific values live here; every other tunable and its default is
+# documented in roles/<role>/defaults/main.yml. Inventory values override role
+# defaults, so this is where a site deviates from the baseline.
 # ---------------------------------------------------------------------------
 
 # Automation account used by Ascender ("Ubuntu VM - svc_ansible (SSH key)"
@@ -18,6 +21,9 @@ cis_mgmt_cidrs:
   - 10.0.2.2/32       # VirtualBox NAT gateway (Ascender via port forward)
 
 # Egress allow-list (only used when cis_ufw_default_outgoing == "deny").
+# CIS denies outbound traffic by default; each entry is a service the host
+# needs to keep working (name resolution, DHCP lease, time sync, updates).
+# Replying to inbound SSH needs no rule: ufw is stateful.
 cis_ufw_egress_rules:
   - { port: "53",   proto: udp, to: any,          comment: "DNS" }
   - { port: "53",   proto: tcp, to: any,          comment: "DNS (TCP fallback)" }
@@ -27,5 +33,5 @@ cis_ufw_egress_rules:
   - { port: "80",   proto: tcp, to: any,          comment: "APT mirror" }
   - { port: "443",  proto: tcp, to: any,          comment: "APT / Ubuntu Pro / snap store" }
 
-# Keep Ubuntu's NTS pools
+# Time sources. Empty = keep Ubuntu's NTS pools (needs 123/udp and 4460/tcp out).
 cis_ntp_servers: []

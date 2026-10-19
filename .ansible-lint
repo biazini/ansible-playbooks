@@ -1,6 +1,8 @@
 ---
-# cis_ prefix is used on purpose (variables are shared with group_vars)
+# ansible-lint configuration for the whole repository.
+# Run locally before pushing:  ansible-lint
 skip_list:
+  # Roles here use a short, role-specific prefix (cis_ for cis_l1_baseline)
+  # instead of the full role name, because the same variables are set from
+  # inventory group_vars and the full name would be long and noisy.
   - var-naming[no-role-prefix]
-exclude_paths:
-  - examples/

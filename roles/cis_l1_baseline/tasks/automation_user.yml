@@ -1,4 +1,12 @@
 ---
+# Key-only automation account used by Ascender / Terraform / Packer.
+# Also called on its own by playbooks/bootstrap.yml (tasks_from).
+# Why each setting:
+#   password "*"      no usable password: PAM aging/faillock never apply,
+#                     the account can never "expire" in the middle of a run
+#   chage -1          password aging disabled for this account only
+#   exclusive keys    only the keys listed in cis_automation_pubkeys work
+#   NOPASSWD sudo     unattended runs (Level 2 control in 22.04/24.04)
 - name: Automation | Group exists
   ansible.builtin.group:
     name: "{{ cis_automation_group }}"

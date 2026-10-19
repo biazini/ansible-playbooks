@@ -1,10 +1,22 @@
 ---
-# Apply the baseline. First run on a host: use --limit, --diff and keep a
-# console (vSphere web console) open. Example:
-#   ansible-playbook playbooks/site.yml --limit lab-ubu2604-01 --diff
+# =============================================================================
+# CIS Level 1 baseline for Ubuntu servers
+#
+# What:  applies roles/cis_l1_baseline to every host in ubuntu_cis_l1 and
+#        bastions (see inventories/<env>/hosts.yml).
+# Where: Ascender job templates "Ubuntu CIS L1 - Check (dry run)" (check mode)
+#        and "Ubuntu CIS L1 - Apply".
+# Needs: the host was bootstrapped first (playbooks/bootstrap.yml), so the
+#        key-only automation account exists.
+#
+# First run on a host: dry run first, keep the VM console open, use --limit.
+#   ansible-playbook playbooks/site.yml --limit <host> --check --diff
+# =============================================================================
 - name: CIS Level 1 Server baseline (Ubuntu 26.04)
   hosts: ubuntu_cis_l1:bastions
   become: true
+  # Roll out in batches: a mistake stops after the first batch instead of
+  # hitting the whole fleet. max_fail_percentage 0 = any failure stops the run.
   serial: "{{ cis_serial | default('20%') }}"
   max_fail_percentage: 0
   roles:

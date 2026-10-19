@@ -1,4 +1,0 @@
----
-# Jump hosts: ProxyJump / agent forwarding need forwarding enabled.
-# Documented exception to "Ensure sshd DisableForwarding is enabled".
-cis_ssh_disable_forwarding: false

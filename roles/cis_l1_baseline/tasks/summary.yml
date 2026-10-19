@@ -1,4 +1,6 @@
 ---
+# End of the run: flush pending handlers and tell the operator what still
+# needs a reboot (new /tmp mount options only apply at boot).
 - name: Summary | Flush handlers
   ansible.builtin.meta: flush_handlers
 
@@ -6,7 +8,7 @@
   ansible.builtin.debug:
     msg: >-
       /tmp mount options change on next boot. Reboot in a maintenance window
-      (or set cis_allow_reboot=true). Run scripts/cis-l1-smoke.sh afterwards.
+      (or set cis_allow_reboot=true). Then run playbooks/smoke.yml (Ascender "Ubuntu CIS L1 - Smoke test").
   when:
     - cis_reboot_required | default(false)
     - not cis_allow_reboot

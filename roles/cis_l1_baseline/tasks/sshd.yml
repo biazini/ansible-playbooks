@@ -1,4 +1,10 @@
 ---
+# SSH server hardening.
+# The settings go in a drop-in (/etc/ssh/sshd_config.d/00-cis-hardening.conf).
+# sshd uses the FIRST value it reads per keyword, and 00- sorts before
+# 50-cloud-init.conf, so cloud-init cannot silently re-enable passwords.
+# Safety: the full config is validated with "sshd -t" and the previous file is
+# restored if it fails; after reload Ansible reconnects to prove login works.
 - name: SSH | Main config includes the drop-in directory first
   ansible.builtin.command: grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config
   register: _cis_sshd_include
