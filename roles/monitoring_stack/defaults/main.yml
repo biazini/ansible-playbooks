@@ -29,16 +29,19 @@ monitoring_service_down_for: 10s
 # How long a target must be unreachable before SelfHealTargetDown fires.
 monitoring_target_down_for: 30s
 
+# Time budget of automation: a healable unit still down after this long
+# fires SelfHealServiceDownTooLong, which pages on-call. Covers every way
+# automation can fail (breaker open, precheck failed, restart failed, EDA or
+# Ascender down). A Prometheus "for" is a timer per incident that restarts
+# when the unit recovers; Alertmanager's group_wait is not (it runs per
+# alert group, so a flapping service gets paged early or not at all).
+monitoring_oncall_grace: 2m
+
 # --- Alertmanager routing -------------------------------------------------------
-# Self-healing alerts (label selfheal="true") go to two receivers:
-#   eda-selfheal  ansible-rulebook, immediately (group_wait 0s)
-#   on-call       the human, only if the alert is still firing after
-#                 monitoring_oncall_grace: when automation heals in time the
-#                 alert resolves first and nobody is woken up.
-# Everything else (e.g. SelfHealTargetDown) goes straight to on-call.
+#   selfheal="true"   eda-selfheal (ansible-rulebook), immediately
+#   everything else   on-call (SelfHealServiceDownTooLong, SelfHealTargetDown)
 monitoring_eda_webhook: http://127.0.0.1:5050/alerts
 monitoring_oncall_webhook: http://127.0.0.1:5051/page
-monitoring_oncall_grace: 2m
 
 # One notification per incident to EDA. A repeat would launch the remediation
 # again for an alert that automation already gave up on (breaker open).
