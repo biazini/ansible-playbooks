@@ -5,8 +5,12 @@
 - name: Heal | Record this automatic restart (breaker history)
   ansible.builtin.copy:
     dest: "{{ _sh_history_file }}"
+    # One epoch per line. A loop, not join('\n'): inside a YAML block the
+    # '\n' reaches Jinja as backslash + n and the file becomes one token.
     content: |
-      {{ (_sh_recent + [_sh_now]) | join('\n') }}
+      {% for _sh_epoch in _sh_recent + [_sh_now] %}
+      {{ _sh_epoch }}
+      {% endfor %}
     owner: root
     group: root
     mode: "0640"
