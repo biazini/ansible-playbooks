@@ -9,8 +9,13 @@
 
 - name: Controller | Inventory source sync
   awx.awx.inventory_source_update:
-    name: "{{ selfheal_inventory_source }}"
-    inventory: "{{ selfheal_inventory }}"
+    name: "{{ item.source }}"
+    inventory: "{{ item.inventory }}"
     organization: "{{ selfheal_organization }}"
     wait: true
-  when: selfheal_inventory_source | length > 0
+  loop:
+    - { source: "{{ selfheal_inventory_source }}", inventory: "{{ selfheal_inventory }}" }
+    - { source: "{{ selfheal_remediation_inventory_source }}", inventory: "{{ selfheal_remediation_inventory }}" }
+  loop_control:
+    label: "{{ item.inventory }}"
+  when: item.source | length > 0

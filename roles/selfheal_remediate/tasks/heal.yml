@@ -1,6 +1,6 @@
 ---
 # Record first, then act: a restart that hangs or kills the job still counts
-# for the breaker.
+# for the breaker. Manual launches are not recorded.
 
 - name: Heal | Record this automatic restart (breaker history)
   ansible.builtin.copy:
@@ -10,6 +10,7 @@
     owner: root
     group: root
     mode: "0640"
+  when: _sh_automatic | bool
 
 - name: Heal | Restart the unit
   ansible.builtin.systemd_service:

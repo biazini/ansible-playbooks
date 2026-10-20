@@ -19,6 +19,35 @@
     scm_branch: "{{ selfheal_scm_branch }}"
   when: selfheal_inventory_source | length > 0
 
+- name: Controller | Inventory for the remediation (never synced on launch)
+  awx.awx.inventory:
+    name: "{{ selfheal_remediation_inventory }}"
+    organization: "{{ selfheal_organization }}"
+    description: >-
+      {{ selfheal_inventory_path }} from Git, like {{ selfheal_inventory }}, but
+      synced on push and hourly, never on launch: a remediation starts in seconds
+
+- name: Controller | Its source - same Git file, no update on launch
+  awx.awx.inventory_source:
+    name: "{{ selfheal_remediation_inventory_source }}"
+    inventory: "{{ selfheal_remediation_inventory }}"
+    organization: "{{ selfheal_organization }}"
+    source: scm
+    source_project: "{{ selfheal_project }}"
+    source_path: "{{ selfheal_inventory_path }}"
+    scm_branch: "{{ selfheal_scm_branch }}"
+    overwrite: true
+    overwrite_vars: true
+    update_on_launch: false
+
+- name: Controller | Hourly sync of that source
+  awx.awx.schedule:
+    name: "{{ selfheal_remediation_inventory_source }} - hourly"
+    unified_job_template: "{{ selfheal_remediation_inventory_source }}"
+    organization: "{{ selfheal_organization }}"
+    rrule: "{{ selfheal_remediation_inventory_rrule }}"
+    enabled: true
+
 - name: Controller | Label
   awx.awx.label:
     name: "{{ selfheal_label }}"
@@ -49,7 +78,7 @@
       breaker, restart, verification (playbooks/selfheal_remediate.yml)
     organization: "{{ selfheal_organization }}"
     project: "{{ selfheal_project }}"
-    inventory: "{{ selfheal_inventory }}"
+    inventory: "{{ selfheal_remediation_inventory }}"
     playbook: playbooks/selfheal_remediate.yml
     credentials: ["{{ selfheal_machine_credential }}"]
     scm_branch: "{{ selfheal_scm_branch }}"
@@ -102,5 +131,13 @@
       - "{{ selfheal_jt_deploy }}"
       - "{{ selfheal_jt_remediate }}"
       - "{{ selfheal_jt_chaos }}"
+    lookup_organization: "{{ selfheal_organization }}"
+  when: selfheal_team | length > 0
+
+- name: Controller | Team can see the remediation inventory (job host details)
+  awx.awx.role:
+    team: "{{ selfheal_team }}"
+    role: read
+    inventories: ["{{ selfheal_remediation_inventory }}"]
     lookup_organization: "{{ selfheal_organization }}"
   when: selfheal_team | length > 0

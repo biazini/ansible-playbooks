@@ -19,6 +19,16 @@ selfheal_inventory_source: ""
 selfheal_machine_credential: ""
 selfheal_team: ""                 # granted execute on the three templates; empty = none
 
+# Inventory of the remediation template. Same hosts file as
+# selfheal_inventory, but its source never syncs on launch: on a busy
+# inventory, "update on launch" adds an inventory sync AND a project sync
+# (about 45 s in the lab) before the first remediation task. It is synced
+# by this role after each push and by an hourly schedule instead.
+selfheal_remediation_inventory: Self-Healing Inventory
+selfheal_remediation_inventory_source: "{{ selfheal_project }} - self-healing"
+selfheal_inventory_path: inventories/lab/hosts.yml
+selfheal_remediation_inventory_rrule: "DTSTART;TZID=UTC:20260101T000000 RRULE:FREQ=HOURLY;INTERVAL=1"
+
 # Git branch the templates (and the inventory source) run from. Empty = the
 # project's branch. A value needs "Allow branch override" on the project,
 # which the role then turns on. Cost: every job then syncs that branch and

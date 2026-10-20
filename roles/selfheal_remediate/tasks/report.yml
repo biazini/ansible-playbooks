@@ -26,10 +26,11 @@
       - "Outage (down -> healthy): {{ (_sh_healthy | int) - (_sh_down | int) }} s"
       - "Detection (down -> alert fired): {{ _sh_detect }}"
       - "Remediation (alert fired -> healthy): {{ _sh_fix }}"
-      - "Automatic restarts in the last {{ selfheal_breaker_window_minutes }} min: {{ (_sh_recent | length) + 1 }}/{{ selfheal_breaker_max }}"
+      - "Automatic restarts in the last {{ selfheal_breaker_window_minutes }} min: {{ _sh_count }}/{{ selfheal_breaker_max }}{{ '' if _sh_automatic | bool else ' (manual launch, not counted)' }}"
   vars:
     _sh_detect: "{{ ((_sh_alerted | int) - (_sh_down | int)) ~ ' s' if _sh_alerted | int > 0 else 'n/a (manual launch)' }}"
     _sh_fix: "{{ ((_sh_healthy | int) - (_sh_alerted | int)) ~ ' s' if _sh_alerted | int > 0 else 'n/a (manual launch)' }}"
+    _sh_count: "{{ (_sh_recent | length) + (1 if _sh_automatic | bool else 0) }}"
 
 - name: Report | Job statistics
   ansible.builtin.set_stats:
@@ -37,4 +38,5 @@
       selfheal_result: healed
       selfheal_unit: "{{ _sh_unit }}"
       selfheal_outage_seconds: "{{ (_sh_healthy | int) - (_sh_down | int) }}"
-      selfheal_restarts_in_window: "{{ (_sh_recent | length) + 1 }}"
+      selfheal_automatic: "{{ _sh_automatic | bool }}"
+      selfheal_restarts_in_window: "{{ (_sh_recent | length) + (1 if _sh_automatic | bool else 0) }}"

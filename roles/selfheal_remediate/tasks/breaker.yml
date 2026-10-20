@@ -2,6 +2,7 @@
 # Automation with limits: a unit that keeps dying is not fixed by restarting
 # it again. Past the limit the job fails on purpose with ESCALATE; the alert
 # keeps firing and Alertmanager pages on-call (route "on-call").
+# Manual launches are not limited (see _sh_automatic in validate.yml).
 
 - name: Breaker | Escalate after too many automatic restarts
   ansible.builtin.fail:
@@ -11,4 +12,6 @@
       {{ selfheal_breaker_window_minutes }} minutes. Automation stops here and
       on-call is paged. After fixing the cause, launch "Self-Heal - Remediate
       service" with selfheal_reset_breaker=true.
-  when: _sh_recent | length >= selfheal_breaker_max | int
+  when:
+    - _sh_automatic | bool
+    - _sh_recent | length >= selfheal_breaker_max | int
