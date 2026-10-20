@@ -1,12 +1,12 @@
 # Ansible Automation Content — Linux Infrastructure
 
-Playbooks, roles and inventories that manage the Linux estate, executed from the **Ascender Automation Platform**. Git is the single source of truth: Ascender pulls this repository, and every change to a managed host comes from a reviewed commit here. The first content delivered is a **CIS Level 1 Server baseline for Ubuntu 26.04 LTS**, built to stay safe for unattended automation.
+Playbooks, roles and inventories that manage the Linux estate, executed from the **Ascender Automation Platform**. Git is the single source of truth: Ascender pulls this repository, and every change to a managed host comes from a reviewed commit here. The first content delivered is a **CIS Level 1 Server baseline for Ubuntu 26.04 LTS**, built to stay safe for unattended automation. The second is **self-healing with Event-Driven Ansible**: Prometheus detects a failed service, ansible-rulebook launches an Ascender job that heals it within seconds, and a human is paged only when automation gives up ([section 8](#8-self-healing-with-event-driven-ansible)).
 
 | | |
 |---|---|
-| **Validated with** | Ascender 25.6.2 · Execution Environment `ascender-ee:25.6.2` (ansible-core 2.16) · k3s `v1.36.5+k3s1` |
+| **Validated with** | Ascender 25.6.2 · Execution Environment `ascender-ee:25.6.2` (ansible-core 2.16) · k3s `v1.36.5+k3s1` · ansible-rulebook 1.3.2 · Prometheus 2.53 |
 | **Managed platform** | Ubuntu 26.04 LTS (also 24.04 LTS), x86_64 |
-| **Content** | Roles `ubuntu_base` and `cis_l1_baseline` · 6 playbooks · lab inventory |
+| **Content** | Roles `ubuntu_base`, `cis_l1_baseline` and 6 self-healing roles · 10 playbooks · 1 rulebook · lab inventory |
 
 ![Ansible for Ascender — Linux Infrastructure](docs/images/cover.png)
 
@@ -19,8 +19,9 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 5. [Onboarding procedure](#5-onboarding-procedure)
 6. [Development workflow](#6-development-workflow)
 7. [Operations](#7-operations)
-8. [Troubleshooting](#8-troubleshooting)
-9. [Lessons learned](#9-lessons-learned)
+8. [Self-healing with Event-Driven Ansible](#8-self-healing-with-event-driven-ansible)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Lessons learned](#10-lessons-learned)
 - [Appendix A — Repository files](#appendix-a--repository-files)
 - [Appendix B — References](#appendix-b--references)
 - [License](#license)
@@ -36,16 +37,27 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 ├── ansible.cfg                   Shared Ansible settings, picked up by Ascender
 ├── .ansible-lint                 Lint configuration for the whole repository
 ├── collections/
-│   └── requirements.yml          Collections installed by Ascender on every project sync
+│   ├── requirements.yml          Collections installed by Ascender on every project sync
+│   └── requirements-ops.yml      Collections for the self-healing ops node only (awx.awx)
 ├── docs/
-│   ├── architecture/             HLD and LLD (draw.io sources + PNG exports)
+│   ├── architecture/             HLD, LLD and self-healing architecture (draw.io sources + PNG exports)
 │   └── images/                   Cover image
+├── extensions/
+│   └── eda/rulebooks/            Event-Driven Ansible rulebook (selfheal.yml)
 ├── inventories/
-│   └── lab/                      hosts.yml + group_vars/ (one folder per environment)
+│   └── lab/                      hosts.yml + group_vars/ (one folder per environment);
+│                                 ops.yml = self-healing ops node, local runs only
 ├── playbooks/                    Entry points, one per job template
 └── roles/
     ├── cis_l1_baseline/          CIS Level 1 role, documented in its own README
-    └── ubuntu_base/              General Ubuntu settings outside CIS (keyboard, clean initramfs)
+    ├── ubuntu_base/              General Ubuntu settings outside CIS (keyboard, clean initramfs)
+    ├── nginx_web/                Self-healing: demo workload (nginx + /healthz)
+    ├── node_exporter/            Self-healing: Prometheus exporter, systemd state of allow-listed units
+    ├── selfheal_remediate/       Self-healing: the remediation (validate, breaker, precheck, restart, verify)
+    ├── selfheal_chaos/           Self-healing: failure injection for tests and game days
+    ├── monitoring_stack/         Self-healing ops node: Prometheus + Alertmanager
+    ├── eda_rulebook/             Self-healing ops node: ansible-rulebook as a systemd service
+    └── selfheal_controller/      Self-healing: Ascender templates, EDA account and token as code
 ```
 
 ### Conventions
@@ -97,6 +109,9 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 | Execution Environment | `ghcr.io/ctrliq/ascender-ee:25.6.2` | Runtime of every project sync, inventory sync and job. |
 | SSH relay (lab) | systemd unit `vbox-ubuntu-ssh-relay` in WSL (socat) | Bridges the k3s pod network to the VirtualBox port forward. |
 | Port forward (lab) | VirtualBox NAT rule `ssh-ascender` | `127.0.0.1:2222` on Windows → VM port 22. |
+| Self-healing objects | Templates **Self-Heal - Deploy target / Remediate service / Chaos test** · inventory **Self-Healing Inventory** · user `svc_eda` | Created by role `selfheal_controller`; see [section 8](#8-self-healing-with-event-driven-ansible). |
+| Self-healing ops node (lab) | WSL: `prometheus`, `prometheus-alertmanager`, `eda-selfheal` (systemd) | Detect, route and react; all on loopback. |
+| Port forwards (lab) | VirtualBox NAT rules `node-exporter`, `web-demo` | `127.0.0.1:19100` → VM 9100 · `127.0.0.1:8080` → VM 80. |
 
 ### 1.5 Network flows and ports
 
@@ -109,6 +124,10 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 | 5 | VirtualBox NAT → VM `10.0.2.15:22` | SSH 22/tcp | Arrives from the NAT gateway `10.0.2.2`, the only SSH source allowed by the host firewall. |
 | 6 | VM → Internet | DNS 53, DHCP 67, NTP 123, NTS-KE 4460, HTTP/HTTPS 80/443 | Egress allow-list of the CIS firewall (resolution, lease, time, packages). |
 | 7 | Administrator browser → `ascender.localhost` | HTTP 80/tcp | Web console and REST API (`/api/v2`). |
+| 8 | Prometheus (WSL) → `127.0.0.1:19100` → VM `:9100` | HTTP | Self-healing: node_exporter scrape every 5 s, from `10.0.2.2` inside the VM (ufw rule added by role `node_exporter`). |
+| 9 | Alertmanager → ansible-rulebook `127.0.0.1:5050` / `:5051` | HTTP | Self-healing: alert webhooks (remediation / on-call pager). |
+| 10 | ansible-rulebook → `ascender.localhost` | HTTP 80/tcp | Self-healing: launch the remediation template (`svc_eda` token). |
+| 11 | Browser → `127.0.0.1:8080` → VM `:80` | HTTP | Demo page served by nginx (role `nginx_web`). |
 
 ### 1.6 Design decisions
 
@@ -123,6 +142,7 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 | Check mode before every first apply | The dry run shows every change as a diff before anything is touched. |
 | Hardening built for automation | The CIS role never removes the access it relies on: preflight checks, validated SSH changes and a firewall that rolls itself back (see the [role README](roles/cis_l1_baseline/README.md)). |
 | Relay bound to the k3s bridge only (lab) | Pods reach the VM, the LAN does not: the port forward listens on loopback and the relay on `10.42.0.1`. |
+| Self-healing acts only through Ascender | ansible-rulebook holds no SSH key: it can only ask Ascender to run one template, so every automatic action has a job log, the same credential and the same audit trail as a human run. |
 
 ---
 
@@ -134,7 +154,7 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 
 ### 2.2 Scope
 
-- **In scope** — Ubuntu 26.04 / 24.04 LTS servers; the CIS Level 1 Server baseline; the Ascender objects that run the content; the lab network path.
+- **In scope** — Ubuntu 26.04 / 24.04 LTS servers; the CIS Level 1 Server baseline; self-healing of allow-listed systemd services with Event-Driven Ansible; the Ascender objects that run the content; the lab network path.
 - **Out of scope** — installing Ascender itself (see [ascender-k3s-installation](https://github.com/biazini/ascender-k3s-installation)); operating-system installation and disk layout; formal CIS compliance evidence (needs an independent audit tool).
 
 ### 2.3 Content catalogue
@@ -147,11 +167,22 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 | `playbooks/site.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Check (dry run) / Apply | Applies role `cis_l1_baseline`; the Check template runs it in check mode with diff. |
 | `playbooks/smoke.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Smoke test | Runs the role's smoke script and fails if any check fails. |
 | `playbooks/seal-template.yml` | all | — | Image builds only: removes host identity before a VM becomes a template. |
+| `playbooks/selfheal_target.yml` | `selfheal_targets` | Self-Heal - Deploy target | nginx demo site and node_exporter (roles `nginx_web`, `node_exporter`). |
+| `playbooks/selfheal_remediate.yml` | `selfheal_targets` | Self-Heal - Remediate service | Heals one allow-listed unit on one host; launched by ansible-rulebook or by a person. |
+| `playbooks/selfheal_chaos.yml` | `selfheal_targets` | Self-Heal - Chaos test | Stops, crashes or misconfigures a service on purpose (survey). |
+| `playbooks/selfheal_ops.yml` | `selfheal_ops` | — (workstation) | Ops node (Prometheus, Alertmanager, ansible-rulebook) and the Ascender objects above. |
 
 | Role | Purpose | Documentation |
 |---|---|---|
 | `ubuntu_base` | General Ubuntu settings outside CIS: console keyboard layout (pt), initramfs without unused dracut modules | [roles/ubuntu_base/README.md](roles/ubuntu_base/README.md) |
 | `cis_l1_baseline` | CIS Ubuntu 26.04 Level 1 Server hardening, safe for unattended automation | [roles/cis_l1_baseline/README.md](roles/cis_l1_baseline/README.md) |
+| `nginx_web` | Self-healing demo workload: nginx, one page and `/healthz` | [roles/nginx_web/README.md](roles/nginx_web/README.md) |
+| `node_exporter` | Prometheus node_exporter, systemd state of the allow-listed units only | [roles/node_exporter/README.md](roles/node_exporter/README.md) |
+| `selfheal_remediate` | Heal one unit safely: validation, evidence, circuit breaker, precheck, restart, verification | [roles/selfheal_remediate/README.md](roles/selfheal_remediate/README.md) |
+| `selfheal_chaos` | Failure injection for tests and game days | [roles/selfheal_chaos/README.md](roles/selfheal_chaos/README.md) |
+| `monitoring_stack` | Prometheus + Alertmanager on the ops node, self-healing rules and routing | [roles/monitoring_stack/README.md](roles/monitoring_stack/README.md) |
+| `eda_rulebook` | ansible-rulebook as a hardened systemd service | [roles/eda_rulebook/README.md](roles/eda_rulebook/README.md) |
+| `selfheal_controller` | Ascender templates, least-privilege EDA account and token, as code | [roles/selfheal_controller/README.md](roles/selfheal_controller/README.md) |
 
 ---
 
@@ -206,6 +237,8 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 | OpenSSH | 10.2p1 |
 | sudo | sudo-rs 0.2.13 (classic sudo available as `sudo.ws`) |
 | Python | 3.14.4 |
+| nginx (self-healing demo) | 1.28.3 (Ubuntu archive) |
+| prometheus-node-exporter | 1.10.2 (Ubuntu archive) |
 
 ### 4.4 Engineer tooling
 
@@ -213,6 +246,17 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 |---|---|
 | ansible-core (WSL) | 2.20.1 |
 | ansible-lint | 26.1.1 |
+| awx.awx (Ubuntu `ansible` package) | 24.6.1 |
+
+### 4.5 Self-healing ops node (WSL)
+
+| Component | Version | Notes |
+|---|---|---|
+| Prometheus | 2.53.5 | Ubuntu archive, `127.0.0.1:9090` |
+| Alertmanager | 0.28.1 | Ubuntu archive, `127.0.0.1:9093`, HA gossip off |
+| ansible-rulebook | 1.3.2 | venv `/opt/eda-selfheal/venv` (Python 3.14, drools_jpy 0.4.1) |
+| ansible.eda | 2.13.0 | `/opt/eda-selfheal/collections` (source `ansible.eda.alertmanager`) |
+| OpenJDK | 21.0.12 (`openjdk-21-jre-headless`) | Rule engine (Drools) of ansible-rulebook |
 
 ---
 
@@ -311,6 +355,7 @@ Add a schedule to **Ubuntu CIS L1 - Apply** (for example weekly). Package update
 |---|---|---|
 | GitHub token | Before it expires, or when exposed | Regenerate it in GitHub (fine-grained, contents read-only, this repository) and paste it in **Password** of `GitHub - ansible-playbooks`. |
 | `svc_ansible` SSH key | Periodically, or when exposed | Generate a new key, add the public key to `cis_automation_pubkeys`, run **Apply**, replace the private key in the machine credential, remove the old public key and run **Apply** again. |
+| `svc_eda` API token (self-healing) | Periodically, or when exposed | Run `playbooks/selfheal_ops.yml --tags controller -e selfheal_rotate_token=true` ([8.4](#84-deployment-procedure)): every token of the account is revoked, a new one is written and `eda-selfheal` restarts. |
 
 ### 7.3 Job logs
 
@@ -330,7 +375,116 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 
 ---
 
-## 8. Troubleshooting
+## 8. Self-healing with Event-Driven Ansible
+
+When an allow-listed service dies on a managed host, it comes back on its own in about half a minute, through a normal Ascender job with a full log. When automation cannot fix it, or should not keep trying, a human is paged with the evidence already collected.
+
+### 8.1 Architecture
+
+![Self-healing with Event-Driven Ansible](docs/architecture/Self-Healing-EDA.png)
+
+*Figure 3 — Self-healing architecture (source: [`Self-Healing-EDA.drawio`](docs/architecture/Self-Healing-EDA.drawio))*
+
+| # | Step | Where |
+|---|---|---|
+| ① | Prometheus scrapes node_exporter every 5 s. Only the units in `selfheal_services` are exported (`node_systemd_unit_state`). | `monitoring_stack`, `node_exporter` |
+| ② | The unit is not `active` for 10 s: **SelfHealServiceDown** fires with `selfheal="true"` and the label `inventory_hostname`. | `selfheal.rules.yml` |
+| ③ | Alertmanager sends `selfheal="true"` alerts to ansible-rulebook and everything else to on-call. It only routes: all timers are Prometheus `for` clauses. | `alertmanager.yml` |
+| ④ | The rulebook launches **Self-Heal - Remediate service** as `svc_eda`, with `--limit` = the alert's host and the alert itself in the extra vars (`ansible_eda`). | `extensions/eda/rulebooks/selfheal.yml` |
+| ⑤ | The job validates the request, collects evidence, applies the circuit breaker and the config precheck, restarts the unit and verifies it (unit active + `/healthz`). | `selfheal_remediate` |
+| ⑥ | Still down after 2 minutes, for any reason: **SelfHealServiceDownTooLong** pages on-call. Host unreachable: **SelfHealTargetDown**. | `selfheal.rules.yml` |
+
+### 8.2 Design decisions
+
+| Decision | Rationale |
+|---|---|
+| The rulebook only launches a template | ansible-rulebook holds no SSH key and no inventory. Every automatic action is an Ascender job: same credential, same log, same RBAC as a human run, and it can be replayed by hand. |
+| Least-privilege API account `svc_eda` | Organization member (to find the template by name) and **execute** on one template. A stolen token can restart allow-listed services, nothing else. |
+| The event is never trusted | The playbook requires exactly one host, a well-formed unit name and a unit on that host's `selfheal_services` allow-list, whatever the alert says. |
+| Allow-list in the inventory | One list (`group_vars/selfheal_targets.yml`) drives what is exported, what alerts, what may be restarted and what the chaos test may break. |
+| Circuit breaker (3 automatic restarts / 10 min) | A unit that keeps dying needs a person. The history lives on the host (`/var/lib/selfheal`), so it survives a controller rebuild and is visible to whoever logs in. Manual launches are never limited. |
+| Diagnose before acting | `nginx -t` before the restart: a broken configuration is escalated with the exact error instead of being restarted in a loop. |
+| Escalation is a Prometheus timer | `SelfHealServiceDownTooLong` (`for: 2m`) needs no message from the automation, so it pages even if ansible-rulebook or Ascender is down. Alertmanager `group_wait` was tried first and fails with flapping services (see [10](#10-lessons-learned)). |
+| Remediation inventory without sync on launch | **Linux Inventory** syncs the inventory and the project on every launch (about 45 s). **Self-Healing Inventory** reads the same `hosts.yml`, synced after each push and hourly: a remediation starts in under a second. |
+| Everything as code | Ops node services, alert rules, routing, rulebook, templates, account and token: one playbook rebuilds all of it. Only the admin password is typed, into an environment variable. |
+| Loopback only on the ops node | Prometheus, Alertmanager and the rulebook webhooks listen on `127.0.0.1`; under WSL mirrored networking `0.0.0.0` would mean the LAN. |
+
+### 8.3 Lab prerequisites
+
+- The host is bootstrapped and reachable by Ascender (sections [5.1](#51-phase-1--prepare-the-host)–[5.4](#54-phase-4--connectivity-check-and-base-settings)).
+- Port forwards for the exporter and the demo page, on the Windows workstation (loopback only, like `ssh-ascender`):
+
+  ```bash
+  VBoxManage controlvm "Ubuntu  26.04 LTS" natpf1 "node-exporter,tcp,127.0.0.1,19100,,9100"
+  ```
+  ```bash
+  VBoxManage controlvm "Ubuntu  26.04 LTS" natpf1 "web-demo,tcp,127.0.0.1,8080,,80"
+  ```
+
+- The host is listed under `selfheal_targets` in `inventories/lab/hosts.yml` with `selfheal_exporter_target` (the scrape address).
+
+### 8.4 Deployment procedure
+
+**Phase 1 — Ops node and Ascender objects.** From the clone inside the WSL filesystem, as root:
+
+```bash
+ansible-galaxy collection install -r collections/requirements-ops.yml
+```
+```bash
+export CONTROLLER_HOST=http://ascender.localhost CONTROLLER_USERNAME=admin
+```
+```bash
+read -rsp 'Ascender password: ' CONTROLLER_PASSWORD && export CONTROLLER_PASSWORD
+```
+```bash
+ansible-playbook -i inventories/lab/ playbooks/selfheal_ops.yml
+```
+
+✅ **Expected result** — `failed=0`; `systemctl is-active prometheus prometheus-alertmanager eda-selfheal` prints `active` three times; **Ascender → Templates** lists the three `Self-Heal -` templates and **Ascender → Users** lists `svc_eda`.
+
+**Phase 2 — Monitored workload.** Launch **Self-Heal - Deploy target** with **Limit** `<HOST>`.
+
+✅ **Expected result** — `failed=0`; <http://127.0.0.1:8080> shows the demo page; in Prometheus (<http://localhost:9090>) `node_systemd_unit_state{state="active"}` is `1` for `nginx.service` and target `selfheal_targets` is **UP**.
+
+**Phase 3 — End-to-end test.** Launch **Self-Heal - Chaos test** with **Limit** `<HOST>` and *Failure to inject* `kill`.
+
+✅ **Expected result** — within about 30 s **Views → Jobs** shows **Self-Heal - Remediate service** launched by `svc_eda`, `successful`, ending with `HEALED` and the outage timeline; the demo page is back.
+
+Re-run the ops playbook after every change to roles `monitoring_stack`, `eda_rulebook` or `selfheal_controller`, or to the rulebook. Tags: `monitoring`, `eda`, `controller`.
+
+### 8.5 Test scenarios
+
+All launched from **Self-Heal - Chaos test** (survey) on the lab VM, 20 Oct 2026.
+
+| Scenario | What happens | Result in the lab |
+|---|---|---|
+| `kill` (crash, unit `failed`) | Alert, rulebook, remediation, restart, verification | Healed 8 times out of 8 · outage **31–39 s** (detection 15–19 s, alert to healthy 16–21 s) · job 15–21 s |
+| `stop` (operator mistake) | Same path as `kill` | Healed · outage 35 s (detection 17 s, alert to healthy 18 s) |
+| 4 crashes in 10 minutes | Restarts 1/3, 2/3, 3/3; the 4th job fails with `ESCALATE - circuit breaker open`, no restart | On-call paged 2 min later (`SelfHealServiceDownTooLong`) |
+| `break_config` (bad nginx config + crash) | Precheck fails: `ESCALATE` with `unknown directive "this_directive_does_not_exist"`, no restart | Escalated in 14 s with the exact error |
+| `restore`, then the human closes | **Self-Heal - Remediate service** with `selfheal_reset_breaker: true` | History cleared, unit healed, `RESOLVED` sent to on-call |
+
+### 8.6 Operating it
+
+| Task | How |
+|---|---|
+| See what automation did | **Views → Jobs**, label `self-healing`. Each remediation shows the triggering alert (`ansible_eda` in the extra vars), the evidence, the decision and the timeline; on the host, `journalctl -t selfheal`. |
+| Close an escalated incident | Fix the cause, then launch **Self-Heal - Remediate service** with **Limit** `<HOST>` and extra vars `selfheal_service: <unit>` and `selfheal_reset_breaker: true`. |
+| Heal another service | Add it to `selfheal_services` (unit, precheck, health_url) in `group_vars/selfheal_targets.yml`, push, run **Self-Heal - Deploy target** (exports the new unit) and the ops playbook (syncs the inventory). |
+| Add a host | Add it to `selfheal_targets` with its `selfheal_exporter_target`, push, run **Self-Heal - Deploy target** on it and the ops playbook (new scrape target). |
+| See the pages | `journalctl -u eda-selfheal -g 'PAGE ON-CALL'` (lab stand-in; production: a PagerDuty / Opsgenie / Teams receiver in `alertmanager.yml`). |
+| Watch the chain live | Prometheus <http://localhost:9090/alerts>, Alertmanager <http://localhost:9093>, `journalctl -fu eda-selfheal`. |
+
+### 8.7 From lab to production
+
+- Replace the systemd rulebook with an **EDA Controller** activation: the rulebook already lives in `extensions/eda/rulebooks/`, the layout an EDA project expects.
+- Run Prometheus and Alertmanager in HA (two Alertmanagers in a cluster) and put the on-call receiver on a real paging service.
+- Scrape intervals of 15–30 s and `for: 30s` on a large fleet; detection then takes about a minute.
+- HTTPS for Ascender (`EDA_CONTROLLER_SSL_VERIFY=yes` is set automatically for an `https://` URL).
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Cause | Resolution |
 |---|---|---|
@@ -344,16 +498,27 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 | Boot shows `copymods is deprecated`, `/lib/modules/... exists` or `ln: ... /sysroot/media/root-ro` | Unused dracut modules from Ubuntu 26.04 defaults | Run **Ubuntu Base - Apply** and reboot (role `ubuntu_base`). |
 | VM stops in initramfs: `Can't mount root filesystem` | Root `fsck` killed by a timeout after an unclean stop | From the emergency shell: `e2fsck -p /dev/sda2`, then `systemctl reboot`. |
 | `ansible.cfg` ignored when running locally | Repository in a world-writable folder (`/mnt/c/...`) | Clone inside the WSL filesystem, e.g. `~/ansible-playbooks`. |
+| Self-healing: remediation job `failed` with *Previous Task Failed* (inventory or project update), `elapsed 0` | Template on a per-job branch override (`selfheal_scm_branch`) or an inventory that syncs on launch: every job re-clones and re-downloads the collections, and a Galaxy timeout kills the job before it starts | Keep `selfheal_scm_branch` empty and the remediation on **Self-Healing Inventory** (no update on launch). |
+| Self-healing: nothing happens after a crash | Check the chain in order: Prometheus target UP and alert firing → Alertmanager shows it → `journalctl -u eda-selfheal` shows `POST /alerts` and `Job Launched` | A `401` from Ascender in the rulebook log: re-issue the token (`--tags controller -e selfheal_rotate_token=true`). |
+| `eda-selfheal` does not start | `/etc/eda-selfheal/controller.env` missing (token not issued yet) | Run the ops playbook with tag `controller`. |
+| `ascender.localhost` not resolved inside WSL (Python fails, curl works) | glibc only resolves `localhost` from `/etc/hosts`; curl and browsers special-case `*.localhost` | `libnss-myhostname` + `myhostname` in `/etc/nsswitch.conf` (role `eda_rulebook`). |
+| `nginx: "server_tokens" directive is duplicate` | Ubuntu 26.04 already sets `server_tokens off` at http level | Set it at server level (role `nginx_web` does). |
+| Warning `You are running collection version 24.6.1 but connecting to AWX version 25.6.2` | Ascender reports its own version as the AWX version | Harmless: awx.awx 24.6.1 is the latest collection and works with Ascender 25.6.2. |
 
 ---
 
-## 9. Lessons learned
+## 10. Lessons learned
 
 - **Ubuntu 26.04 changes the automation surface.** sudo-rs replaces sudo (no `logfile`, different password prompt) and OpenSSH 10.2 adds post-quantum key exchange. Content must detect, not assume.
 - **Hardening must protect its own access path.** Preflight assertions, `sshd -t` with rollback, reconnect tests and a self-cancelling firewall timer turned the riskiest changes into routine runs.
 - **Every Ascender quirk belongs in configuration.** The ssh-agent behaviour (`IdentitiesOnly`) and the Execution Environment's ansible-core version decided two of the fixes; both are documented where they live (`ansible.cfg`, `bootstrap.yml`).
 - **Verify with the effective state, not the files.** The smoke test reads `sshd -T`, `findmnt` and `sysctl`, which is how the apport override was found.
 - **Hypervisor stacking matters.** VirtualBox on Hyper-V cannot take usable live snapshots; plan offline snapshots.
+- **The remediation path must not depend on the Internet.** The first automatic remediation died before its first task: a per-job branch sync re-downloaded the collections and Galaxy timed out. Anything a remediation job does before its first task (project sync, inventory sync, collection install) is part of the outage.
+- **Measure the platform overhead, not only the playbook.** The playbook took 16 s; "update on launch" on the inventory added 45 s more. A dedicated inventory synced on push cut the job start to under a second.
+- **Alertmanager is a router, not a timer.** Escalating with `group_wait` paged a flapping service 20 s into an incident that healed by itself, and never paged the one that opened the circuit breaker. A second Prometheus rule with `for: 2m` gives every incident its own timer and also covers "the automation itself is down".
+- **Test the guardrails, not only the happy path.** The circuit breaker passed every review and failed its first test: `join('\n')` inside a YAML block wrote a literal backslash-n, so the restart history never reached the limit. Only the chaos test showed it.
+- **Automation needs a stop condition and a human exit.** Three restarts in ten minutes, a config precheck and an explicit reset by a person keep self-healing from hiding real problems.
 
 ---
 
@@ -369,6 +534,12 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 | [`playbooks/`](playbooks/) | Entry points; each file starts with what, when and why. |
 | [`roles/cis_l1_baseline/`](roles/cis_l1_baseline/) | CIS role, its README and task-flow diagram. |
 | [`roles/ubuntu_base/`](roles/ubuntu_base/) | General Ubuntu settings, its README and task-flow diagram. |
+| [`collections/requirements-ops.yml`](collections/requirements-ops.yml) | Collections for the self-healing ops node only (not read by Ascender). |
+| [`inventories/lab/ops.yml`](inventories/lab/ops.yml) | Self-healing ops node (the workstation), local runs only. |
+| [`inventories/lab/group_vars/selfheal_targets.yml`](inventories/lab/group_vars/selfheal_targets.yml) | Self-healing allow-list, circuit breaker limits, scrape sources. |
+| [`inventories/lab/group_vars/selfheal_ops.yml`](inventories/lab/group_vars/selfheal_ops.yml) | Ascender URL and the existing objects the self-healing templates use. |
+| [`extensions/eda/rulebooks/selfheal.yml`](extensions/eda/rulebooks/selfheal.yml) | Event-Driven Ansible rulebook: remediation ruleset and lab on-call pager. |
+| [`roles/selfheal_remediate/`](roles/selfheal_remediate/) and the other self-healing roles | Each with its README; task-flow diagram for the remediation. |
 
 ## Appendix B — References
 
@@ -378,6 +549,10 @@ The relay starts after k3s at boot and restarts on failure. It listens on `10.42
 - ansible-lint: <https://ansible.readthedocs.io/projects/lint/>
 - CIS Ubuntu Linux Benchmarks: <https://www.cisecurity.org/benchmark/ubuntu_linux>
 - Ubuntu Security Guide (USG): <https://ubuntu.com/security/certifications/docs/usg>
+- ansible-rulebook (Event-Driven Ansible): <https://ansible.readthedocs.io/projects/rulebook/>
+- ansible.eda collection (event sources): <https://github.com/ansible/event-driven-ansible>
+- Prometheus alerting rules: <https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/>
+- Alertmanager configuration: <https://prometheus.io/docs/alerting/latest/configuration/>
 
 ## License
 
