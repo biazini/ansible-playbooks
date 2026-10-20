@@ -1,0 +1,36 @@
+---
+# ---------------------------------------------------------------------------
+# Variables for the "selfheal_targets" group: hosts that Prometheus watches
+# and that Event-Driven Ansible may heal through Ascender.
+# Role defaults (and the reason for each one) are in roles/<role>/defaults.
+# ---------------------------------------------------------------------------
+
+# Allow-list of the units self-healing may touch. It drives three things:
+#   - node_exporter exports the systemd state of these units only;
+#   - Prometheus raises SelfHealServiceDown when one of them is not active;
+#   - the remediation playbook refuses any unit that is not listed here,
+#     whatever the event says (the event payload is never trusted).
+# Per unit:
+#   unit        systemd unit name
+#   precheck    command that must succeed before a restart (config test). A
+#               broken config is escalated instead of restarted in a loop.
+#   health_url  HTTP check on the host after the restart (optional)
+selfheal_services:
+  - unit: nginx.service
+    precheck: nginx -t -q
+    health_url: http://127.0.0.1/healthz
+
+# Circuit breaker: after this many automatic restarts of the same unit on the
+# same host inside the window, automation stops and a human is paged.
+selfheal_breaker_max: 3
+selfheal_breaker_window_minutes: 10
+
+# Who may reach the exporter and the demo page through ufw. With VirtualBox
+# NAT + port forwarding, Prometheus and the browser on the workstation both
+# arrive from the NAT gateway (same reason as cis_mgmt_cidrs in all.yml).
+node_exporter_allow_from: [10.0.2.2/32]
+nginx_web_allow_from: [10.0.2.2/32]
+
+# node_exporter only exports the units of the allow-list (smaller payload,
+# no noise from the hundred other units on the host).
+node_exporter_systemd_units: "{{ selfheal_services | map(attribute='unit') | list }}"

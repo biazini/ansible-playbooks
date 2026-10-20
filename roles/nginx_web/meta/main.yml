@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: nginx_web
+  namespace: infra
+  author: Guilherme Filho
+  description: Demo nginx workload with a /healthz endpoint for the self-healing lab
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble, resolute]
+dependencies: []

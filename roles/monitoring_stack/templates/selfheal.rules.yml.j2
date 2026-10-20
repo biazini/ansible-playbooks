@@ -1,0 +1,27 @@
+# {{ ansible_managed }} (role monitoring_stack)
+# selfheal="true"  automation may fix it: Alertmanager sends it to EDA first.
+# selfheal="false" automation cannot fix it: straight to on-call.
+groups:
+  - name: selfheal
+    rules:
+      # node_exporter exports only the allow-listed units (selfheal_services),
+      # so every unit seen here is one automation is allowed to heal.
+      - alert: SelfHealServiceDown
+        expr: node_systemd_unit_state{job="selfheal_targets", state="active"} == 0
+        for: {{ monitoring_service_down_for }}
+        labels:
+          severity: critical
+          selfheal: "true"
+        annotations:
+          summary: "{% raw %}{{ $labels.name }} is not active on {{ $labels.inventory_hostname }}{% endraw %}"
+
+      # No metrics at all: the host, the network path or the exporter is
+      # down. Restarting a service cannot help, a human must look.
+      - alert: SelfHealTargetDown
+        expr: up{job="selfheal_targets"} == 0
+        for: {{ monitoring_target_down_for }}
+        labels:
+          severity: critical
+          selfheal: "false"
+        annotations:
+          summary: "{% raw %}Prometheus cannot scrape {{ $labels.inventory_hostname }}{% endraw %}"

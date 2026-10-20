@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: eda_rulebook
+  namespace: infra
+  author: Guilherme Filho
+  description: ansible-rulebook (Event-Driven Ansible) as a hardened systemd service running the self-healing rulebook
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [resolute]
+dependencies: []

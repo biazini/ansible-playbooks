@@ -1,0 +1,106 @@
+---
+# The three job templates of the self-healing lab. Same project, inventory
+# and machine credential as every other template of the organization.
+
+- name: Controller | Project allows a branch override (feature branch runs)
+  awx.awx.project:
+    name: "{{ selfheal_project }}"
+    organization: "{{ selfheal_organization }}"
+    allow_override: true
+  when: selfheal_scm_branch | length > 0
+
+# The inventory must come from the same branch as the playbooks, or the
+# selfheal_targets group and its variables would be missing.
+- name: Controller | Inventory source on the same branch as the templates
+  awx.awx.inventory_source:
+    name: "{{ selfheal_inventory_source }}"
+    inventory: "{{ selfheal_inventory }}"
+    organization: "{{ selfheal_organization }}"
+    scm_branch: "{{ selfheal_scm_branch }}"
+  when: selfheal_inventory_source | length > 0
+
+- name: Controller | Label
+  awx.awx.label:
+    name: "{{ selfheal_label }}"
+    organization: "{{ selfheal_organization }}"
+
+- name: Controller | Template - deploy the monitored workload
+  awx.awx.job_template:
+    name: "{{ selfheal_jt_deploy }}"
+    description: nginx demo site + node_exporter on selfheal_targets (playbooks/selfheal_target.yml)
+    organization: "{{ selfheal_organization }}"
+    project: "{{ selfheal_project }}"
+    inventory: "{{ selfheal_inventory }}"
+    playbook: playbooks/selfheal_target.yml
+    credentials: ["{{ selfheal_machine_credential }}"]
+    scm_branch: "{{ selfheal_scm_branch }}"
+    job_type: run
+    ask_job_type_on_launch: true
+    ask_limit_on_launch: true
+    labels: ["{{ selfheal_label }}"]
+
+# Launched by ansible-rulebook with a limit and extra vars (the alert), so
+# both are "prompt on launch". The playbook validates them.
+- name: Controller | Template - remediation (launched by Event-Driven Ansible)
+  awx.awx.job_template:
+    name: "{{ selfheal_jt_remediate }}"
+    description: >-
+      Heal one allow-listed unit on one host: evidence, precheck, circuit
+      breaker, restart, verification (playbooks/selfheal_remediate.yml)
+    organization: "{{ selfheal_organization }}"
+    project: "{{ selfheal_project }}"
+    inventory: "{{ selfheal_inventory }}"
+    playbook: playbooks/selfheal_remediate.yml
+    credentials: ["{{ selfheal_machine_credential }}"]
+    scm_branch: "{{ selfheal_scm_branch }}"
+    job_type: run
+    ask_limit_on_launch: true
+    ask_variables_on_launch: true
+    allow_simultaneous: true        # incidents on different hosts heal in parallel
+    timeout: "{{ selfheal_remediate_timeout }}"
+    labels: ["{{ selfheal_label }}"]
+
+- name: Controller | Template - chaos test (break it on purpose)
+  awx.awx.job_template:
+    name: "{{ selfheal_jt_chaos }}"
+    description: Inject a failure into an allow-listed service (playbooks/selfheal_chaos.yml)
+    organization: "{{ selfheal_organization }}"
+    project: "{{ selfheal_project }}"
+    inventory: "{{ selfheal_inventory }}"
+    playbook: playbooks/selfheal_chaos.yml
+    credentials: ["{{ selfheal_machine_credential }}"]
+    scm_branch: "{{ selfheal_scm_branch }}"
+    job_type: run
+    ask_limit_on_launch: true
+    labels: ["{{ selfheal_label }}"]
+    survey_enabled: true
+    survey_spec:
+      name: Chaos test
+      description: Failure to inject on the selected host (use the limit)
+      spec:
+        - question_name: Failure to inject
+          question_description: >-
+            stop = clean stop, kill = crash (SIGKILL), break_config = broken
+            config + crash (escalates), restore = remove the broken config
+          variable: chaos_mode
+          type: multiplechoice
+          choices: [kill, stop, break_config, restore]
+          default: kill
+          required: true
+        - question_name: Service
+          variable: chaos_unit
+          type: multiplechoice
+          choices: [nginx.service]
+          default: nginx.service
+          required: true
+
+- name: Controller | Team can run the three templates
+  awx.awx.role:
+    team: "{{ selfheal_team }}"
+    role: execute
+    job_templates:
+      - "{{ selfheal_jt_deploy }}"
+      - "{{ selfheal_jt_remediate }}"
+      - "{{ selfheal_jt_chaos }}"
+    lookup_organization: "{{ selfheal_organization }}"
+  when: selfheal_team | length > 0

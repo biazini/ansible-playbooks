@@ -1,0 +1,64 @@
+---
+# Prometheus node_exporter from the Ubuntu archive: security updates come
+# with the normal APT patching, no binary to track by hand.
+# Without recommends: prometheus-node-exporter-collectors adds timers (apt,
+# smartmon...) that the lab does not use.
+
+- name: Node exporter | Package present
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+# The Debian unit runs "prometheus-node-exporter $ARGS" with ARGS read from
+# this file. systemd splits ARGS on spaces without a shell, so the unit
+# regex uses [.] instead of \. (no escaping to get wrong).
+- name: Node exporter | Command-line flags
+  ansible.builtin.template:
+    src: prometheus-node-exporter.default.j2
+    dest: /etc/default/prometheus-node-exporter
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart node exporter
+
+- name: Node exporter | Is ufw installed
+  ansible.builtin.stat:
+    path: /usr/sbin/ufw
+  register: _node_exporter_ufw
+
+- name: Node exporter | Port allowed through ufw from the listed sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    port: "{{ node_exporter_port | string }}"
+    from_ip: "{{ item }}"
+    comment: "node_exporter (Prometheus scrape)"
+  loop: "{{ node_exporter_allow_from }}"
+  when: _node_exporter_ufw.stat.exists
+
+- name: Node exporter | Service enabled and running
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter.service
+    enabled: true
+    state: started
+
+- name: Node exporter | Apply pending configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Node exporter | Metrics answer, with the systemd units
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+    return_content: true
+  register: _node_exporter_metrics
+  until: _node_exporter_metrics.status == 200
+  retries: 10
+  delay: 2
+  failed_when: >-
+    _node_exporter_metrics.status != 200
+    or (node_exporter_systemd_units | length > 0
+        and 'node_systemd_unit_state' not in _node_exporter_metrics.content)
+  when: not ansible_check_mode

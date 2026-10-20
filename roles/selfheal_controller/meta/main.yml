@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: selfheal_controller
+  namespace: infra
+  author: Guilherme Filho
+  description: Ascender job templates, least-privilege EDA account and token for self-healing (awx.awx)
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [resolute]
+dependencies: []

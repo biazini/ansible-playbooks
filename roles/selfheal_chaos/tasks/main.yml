@@ -1,0 +1,69 @@
+---
+# Chaos test for the self-healing lab. Same allow-list as the remediation,
+# so a typo can never stop a unit that automation is not allowed to heal.
+
+- name: Chaos | Request is valid
+  ansible.builtin.assert:
+    that:
+      - chaos_mode in ['stop', 'kill', 'break_config', 'restore']
+      - chaos_unit in (selfheal_services | default([]) | map(attribute='unit') | list)
+      - chaos_mode not in ['break_config', 'restore'] or chaos_unit == 'nginx.service'
+    fail_msg: >-
+      chaos_mode must be stop, kill, break_config or restore (the last two
+      for nginx.service only), and chaos_unit must be in selfheal_services.
+    quiet: true
+
+- name: Chaos | Log the experiment in the host journal
+  ansible.builtin.command: >-
+    logger --tag selfheal-chaos
+    "chaos_mode={{ chaos_mode }} on {{ chaos_unit }} (Ascender job {{ awx_job_id | default('n/a') }})"
+  changed_when: false
+
+- name: Chaos | Stop the unit
+  ansible.builtin.systemd_service:
+    name: "{{ chaos_unit }}"
+    state: stopped
+  when: chaos_mode == 'stop'
+
+- name: Chaos | Broken configuration
+  ansible.builtin.copy:
+    dest: "{{ chaos_broken_file }}"
+    content: |
+      # Written by the chaos test (role selfheal_chaos). Remove with chaos_mode=restore.
+      this_directive_does_not_exist on;
+    owner: root
+    group: root
+    mode: "0644"
+  when: chaos_mode == 'break_config'
+
+# systemctl kill sends the signal to every process in the unit's cgroup:
+# the unit ends in state "failed" (Result=signal), like a real crash.
+- name: Chaos | Crash the unit (SIGKILL)  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl kill --signal=SIGKILL {{ chaos_unit }}
+  changed_when: true
+  when: chaos_mode in ['kill', 'break_config']
+
+- name: Chaos | Remove the broken configuration
+  ansible.builtin.file:
+    path: "{{ chaos_broken_file }}"
+    state: absent
+  when: chaos_mode == 'restore'
+
+- name: Chaos | What to expect next
+  ansible.builtin.debug:
+    msg: "{{ _chaos_next[chaos_mode] }}"
+  vars:
+    _chaos_crash: >-
+      {{ chaos_unit }} is down. Prometheus fires SelfHealServiceDown,
+      ansible-rulebook launches "Self-Heal - Remediate service" and the unit
+      comes back: watch Views -> Jobs.
+    _chaos_next:
+      stop: "{{ _chaos_crash }}"
+      kill: "{{ _chaos_crash }}"
+      break_config: >-
+        {{ chaos_unit }} is down with a broken configuration. The remediation
+        precheck fails and escalates: no restart. Fix it with chaos_mode=restore.
+      restore: >-
+        Configuration restored. Launch "Self-Heal - Remediate service" (limit
+        {{ inventory_hostname }}, selfheal_service={{ chaos_unit }},
+        selfheal_reset_breaker=true) to bring the unit back and close the incident.

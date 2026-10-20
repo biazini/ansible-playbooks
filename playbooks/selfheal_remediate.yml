@@ -1,0 +1,22 @@
+---
+# =============================================================================
+# Self-healing - remediate one service on one host
+#
+# What:  roles/selfheal_remediate: validate the request, collect evidence,
+#        circuit breaker, configuration precheck, restart, verify, report.
+# Where: Ascender job template "Self-Heal - Remediate service", launched by
+#        ansible-rulebook (extensions/eda/rulebooks/selfheal.yml) with
+#          limit:      the alert's inventory_hostname
+#          extra vars: selfheal_service (alert label "name") and ansible_eda
+# Human: same template, limit <host>, extra vars
+#          selfheal_service: nginx.service
+#          selfheal_reset_breaker: true     # after fixing an escalation
+# A job that fails with "ESCALATE" is a decision, not a bug: automation
+# stopped on purpose and on-call is paged.
+# =============================================================================
+- name: Self-healing remediation
+  hosts: selfheal_targets
+  become: true
+  gather_facts: false     # seconds matter during an incident; no fact is used
+  roles:
+    - role: selfheal_remediate

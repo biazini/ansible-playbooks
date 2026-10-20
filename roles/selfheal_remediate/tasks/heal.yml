@@ -1,0 +1,61 @@
+---
+# Record first, then act: a restart that hangs or kills the job still counts
+# for the breaker.
+
+- name: Heal | Record this automatic restart (breaker history)
+  ansible.builtin.copy:
+    dest: "{{ _sh_history_file }}"
+    content: |
+      {{ (_sh_recent + [_sh_now]) | join('\n') }}
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Heal | Restart the unit
+  ansible.builtin.systemd_service:
+    name: "{{ _sh_unit }}"
+    state: restarted
+
+# Audit trail on the host too: the journal says who restarted the unit.
+- name: Heal | Log the action in the host journal
+  ansible.builtin.command: >-
+    logger --tag selfheal
+    "restarted {{ _sh_unit }} (Ascender job {{ awx_job_id | default('n/a') }},
+    {{ 'Event-Driven Ansible' if ansible_eda is defined else 'manual' }})"
+  changed_when: false
+
+- name: Heal | Verify
+  block:
+    - name: Heal | Unit is active
+      ansible.builtin.systemd_service:
+        name: "{{ _sh_unit }}"
+      register: _sh_after
+      until: _sh_after.status.ActiveState == 'active'
+      retries: "{{ selfheal_verify_retries }}"
+      delay: "{{ selfheal_verify_delay }}"
+
+    - name: Heal | Health URL answers
+      ansible.builtin.uri:
+        url: "{{ _sh_spec.health_url }}"
+        status_code: 200
+      register: _sh_health
+      until: _sh_health.status == 200
+      retries: "{{ selfheal_verify_retries }}"
+      delay: "{{ selfheal_verify_delay }}"
+      when: _sh_spec.health_url | default('') | length > 0
+
+  rescue:
+    - name: Heal | Journal after the failed restart
+      ansible.builtin.command: >-
+        journalctl --unit={{ _sh_unit }} --lines={{ selfheal_journal_lines }}
+        --no-pager --output=short-iso
+      register: _sh_journal_after
+      changed_when: false
+
+    - name: Heal | Escalate a restart that did not work
+      ansible.builtin.fail:
+        msg:
+          - >-
+            ESCALATE - {{ _sh_unit }} on {{ inventory_hostname }} was restarted
+            but is not healthy. On-call is paged.
+          - "{{ _sh_journal_after.stdout_lines }}"

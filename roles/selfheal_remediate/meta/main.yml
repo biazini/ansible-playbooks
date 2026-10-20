@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: selfheal_remediate
+  namespace: infra
+  author: Guilherme Filho
+  description: Heal one allow-listed systemd unit with evidence, precheck, circuit breaker and verification
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble, resolute]
+dependencies: []

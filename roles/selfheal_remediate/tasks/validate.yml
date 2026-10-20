@@ -1,0 +1,50 @@
+---
+# The request comes from an event (Alertmanager -> ansible-rulebook ->
+# Ascender extra vars). Treat it as untrusted input: exactly one host, a
+# well-formed unit name, and a unit on this host's allow-list.
+
+- name: Validate | Exactly one host per job
+  ansible.builtin.assert:
+    that:
+      - ansible_limit is defined
+      - ansible_play_hosts_all | length == 1
+    fail_msg: >-
+      Self-healing acts on exactly one host per job. Launch it with a limit
+      (the rulebook sets it from the alert label inventory_hostname).
+    quiet: true
+  run_once: true
+
+- name: Validate | Unit name
+  ansible.builtin.set_fact:
+    _sh_unit: >-
+      {{ (selfheal_service | string) if (selfheal_service | string).endswith('.service')
+         else (selfheal_service | string) ~ '.service' }}
+
+- name: Validate | Unit is well-formed and allow-listed for this host
+  ansible.builtin.assert:
+    that:
+      - selfheal_service | string | length > 0
+      - _sh_unit is match('^[A-Za-z0-9@_.:-]+$')
+      - _sh_unit in (selfheal_services | map(attribute='unit') | list)
+    fail_msg: >-
+      Refusing to act on '{{ selfheal_service }}': not in selfheal_services
+      for {{ inventory_hostname }} (allowed:
+      {{ selfheal_services | map(attribute='unit') | join(', ') | default('none', true) }}).
+    quiet: true
+
+- name: Validate | Settings of the unit
+  ansible.builtin.set_fact:
+    _sh_spec: "{{ selfheal_services | selectattr('unit', 'equalto', _sh_unit) | first }}"
+
+# ansible_eda is added to the extra vars by the rulebook action
+# run_job_template: the rule that matched and the event (here, the alert).
+- name: Validate | What triggered this job
+  ansible.builtin.debug:
+    msg: "{{ _sh_trigger }} -> heal {{ _sh_unit }} on {{ inventory_hostname }}"
+  vars:
+    _sh_trigger: >-
+      {{ ('Event-Driven Ansible, rule "' ~ ansible_eda.rule ~ '": alert '
+          ~ ansible_eda.event.alert.labels.alertname ~ ' fired at '
+          ~ ansible_eda.event.alert.startsAt)
+         if ansible_eda.event.alert is defined
+         else 'Manual launch by ' ~ (awx_user_name | default('a user')) }}

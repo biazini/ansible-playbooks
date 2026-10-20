@@ -1,0 +1,58 @@
+---
+# =============================================================================
+# selfheal_controller - the Ascender side of self-healing, as code (awx.awx):
+# job templates, the least-privilege account Event-Driven Ansible uses, and
+# its API token. Every tunable is here, with its reason.
+#
+# Authentication: the awx.awx modules read CONTROLLER_HOST, CONTROLLER_USERNAME
+# and CONTROLLER_PASSWORD from the environment of the person running the
+# playbook. No admin credential is stored anywhere.
+# =============================================================================
+
+# Existing Ascender objects the templates are built on (lab values in
+# inventories/lab/group_vars/selfheal_ops.yml).
+selfheal_controller_url: http://ascender.localhost
+selfheal_organization: Default
+selfheal_project: ""
+selfheal_inventory: ""
+selfheal_inventory_source: ""
+selfheal_machine_credential: ""
+selfheal_team: ""                 # granted execute on the three templates; empty = none
+
+# Git branch the templates (and the inventory source) run from. Empty = the
+# project's branch. A value needs "Allow branch override" on the project,
+# which the role then turns on.
+selfheal_scm_branch: ""
+
+# Label put on the templates (filter for jobs in Views -> Jobs).
+selfheal_label: self-healing
+
+# Template names. The rulebook launches selfheal_jt_remediate by name
+# (eda_rulebook: eda_job_template).
+selfheal_jt_deploy: Self-Heal - Deploy target
+selfheal_jt_remediate: Self-Heal - Remediate service
+selfheal_jt_chaos: Self-Heal - Chaos test
+
+# Hard limit for one remediation job (seconds). A hung job must not hold
+# the incident open: it fails and the alert reaches on-call.
+selfheal_remediate_timeout: 300
+
+# --- Event-Driven Ansible account -------------------------------------------
+# Local Ascender user for ansible-rulebook. Its only permissions: member of
+# the organization (to find the template by name) and execute on the
+# remediation template. It cannot read credentials, edit anything or run
+# any other template.
+selfheal_eda_username: svc_eda
+
+# File the API token is written to on the ops node (read by the eda-selfheal
+# systemd unit). Same path as eda_rulebook's eda_env_file.
+selfheal_eda_env_file: /etc/eda-selfheal/controller.env
+selfheal_eda_env_group: eda
+
+# true = revoke every token of the account and issue a new one (rotation).
+# Otherwise a new token is only issued when the current one does not work.
+selfheal_rotate_token: false
+
+# Sync the project and the inventory source at the end, so Ascender runs the
+# commit just pushed.
+selfheal_sync_project: true

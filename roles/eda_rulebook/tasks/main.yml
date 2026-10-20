@@ -1,0 +1,112 @@
+---
+# ansible-rulebook in its own venv, run by an unprivileged account under a
+# hardened systemd unit. Tags: eda.
+
+- name: EDA | Resolve *.localhost to the loopback
+  ansible.builtin.import_tasks: resolver.yml
+  when: eda_resolve_localhost | bool
+
+- name: EDA | Java runtime and Python venv support
+  ansible.builtin.apt:
+    name:
+      - "{{ eda_java_package }}"
+      - python3-venv
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: EDA | Service account
+  ansible.builtin.user:
+    name: "{{ eda_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ eda_home }}/state"
+    create_home: false
+
+- name: EDA | Folders
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ eda_user }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - path: "{{ eda_home }}"
+    - path: "{{ eda_home }}/rulebooks"
+    - path: "{{ eda_home }}/collections"
+    - path: "{{ eda_home }}/state"
+      owner: "{{ eda_user }}"
+      mode: "0750"
+    - path: "{{ eda_env_file | dirname }}"
+      mode: "0750"
+
+# ansible-core in the venv: ansible-rulebook uses its collection loader.
+- name: EDA | ansible-rulebook in a venv
+  ansible.builtin.pip:
+    name:
+      - "ansible-rulebook=={{ eda_rulebook_version }}"
+      - ansible-core
+    virtualenv: "{{ eda_home }}/venv"
+    virtualenv_command: python3 -m venv
+  notify: Restart eda-selfheal
+
+- name: EDA | Collection ansible.eda (event source plugins)
+  community.general.ansible_galaxy_install:
+    type: collection
+    name: "ansible.eda:=={{ eda_collection_version }}"
+    dest: "{{ eda_home }}/collections"
+  notify: Restart eda-selfheal
+
+- name: EDA | Rulebook
+  ansible.builtin.copy:
+    src: "{{ eda_rulebook_src }}"
+    dest: "{{ eda_home }}/rulebooks/selfheal.yml"
+    owner: root
+    group: "{{ eda_user }}"
+    mode: "0640"
+  notify: Restart eda-selfheal
+
+- name: EDA | Rulebook variables
+  ansible.builtin.template:
+    src: vars.yml.j2
+    dest: "{{ eda_home }}/vars.yml"
+    owner: root
+    group: "{{ eda_user }}"
+    mode: "0640"
+  notify: Restart eda-selfheal
+
+- name: EDA | Java home
+  ansible.builtin.command: readlink -f /usr/bin/java
+  register: _eda_java_bin
+  changed_when: false
+
+- name: EDA | systemd unit
+  ansible.builtin.template:
+    src: eda-selfheal.service.j2
+    dest: /etc/systemd/system/eda-selfheal.service
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    _eda_java_home: "{{ _eda_java_bin.stdout | dirname | dirname }}"
+  notify: Restart eda-selfheal
+
+- name: EDA | Is the controller token in place
+  ansible.builtin.stat:
+    path: "{{ eda_env_file }}"
+  register: _eda_env
+
+- name: EDA | Service enabled (started once the token exists)
+  ansible.builtin.systemd_service:
+    name: eda-selfheal.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'started' if _eda_env.stat.exists else omit }}"
+
+- name: EDA | Next step without a token
+  ansible.builtin.debug:
+    msg: >-
+      {{ eda_env_file }} does not exist yet: role selfheal_controller writes
+      it (tag controller) and starts eda-selfheal.
+  when: not _eda_env.stat.exists

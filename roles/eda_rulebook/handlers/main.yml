@@ -1,0 +1,8 @@
+---
+# Restart only once the token exists: without it the unit cannot start.
+- name: Restart eda-selfheal
+  ansible.builtin.systemd_service:
+    name: eda-selfheal.service
+    daemon_reload: true
+    state: restarted
+  when: lookup('ansible.builtin.fileglob', eda_env_file) | length > 0

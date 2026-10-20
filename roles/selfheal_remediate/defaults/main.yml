@@ -1,0 +1,40 @@
+---
+# =============================================================================
+# selfheal_remediate - heal one systemd unit on one host, safely.
+# Launched by Event-Driven Ansible through the Ascender template
+# "Self-Heal - Remediate service", or by a human from the same template.
+# Every tunable is here, with its reason.
+# =============================================================================
+
+# Unit to heal. Set by the rulebook from the alert label "name"
+# (e.g. nginx.service); ".service" is added when missing.
+selfheal_service: ""
+
+# Allow-list of units and how to check them (unit, precheck, health_url).
+# Empty by default: nothing can be healed until the inventory says so
+# (lab: group_vars/selfheal_targets.yml).
+selfheal_services: []
+
+# Circuit breaker: at most this many automatic restarts of one unit on one
+# host inside the window. One more failure opens the breaker: no restart,
+# the job fails with ESCALATE and on-call is paged. A service that keeps
+# dying needs a human, and a restart loop would only hide the cause.
+selfheal_breaker_max: 3
+selfheal_breaker_window_minutes: 10
+
+# Set to true by the human who fixed the cause: clears the breaker history
+# of the unit, then heals it as usual.
+selfheal_reset_breaker: false
+
+# Where the breaker history lives on the host (one epoch per restart).
+# On the host, not in Ascender, so it survives controller restores and is
+# visible to whoever logs in to investigate.
+selfheal_state_dir: /var/lib/selfheal
+
+# Verification after the restart: attempts x delay (seconds) for the unit to
+# be active and the health URL to answer 200.
+selfheal_verify_retries: 10
+selfheal_verify_delay: 3
+
+# Journal lines of the unit shown in the job output as evidence.
+selfheal_journal_lines: 20

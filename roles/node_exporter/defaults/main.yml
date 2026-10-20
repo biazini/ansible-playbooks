@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# node_exporter - Prometheus host metrics from the Ubuntu package
+# (prometheus-node-exporter). Every tunable is here, with its reason.
+# =============================================================================
+
+# Port the exporter listens on. Access is limited by ufw, not by the bind
+# address, because Prometheus reaches the host from outside.
+node_exporter_port: 9100
+
+# Sources allowed to scrape the exporter through ufw. Empty = no rule (only
+# local scrapes). Rules are only written when ufw is installed.
+node_exporter_allow_from: []
+
+# systemd units whose state is exported (metric node_systemd_unit_state).
+# Empty = systemd collector off. The self-healing lab sets it from
+# selfheal_services, so only the units automation may heal are exported.
+node_exporter_systemd_units: []
+
+# Extra command-line flags, e.g. ["--collector.processes"].
+node_exporter_extra_args: []

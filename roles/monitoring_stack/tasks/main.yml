@@ -1,0 +1,105 @@
+---
+# Prometheus and Alertmanager from the Ubuntu archive.
+# The listen addresses are written BEFORE the packages are installed: the
+# packages start their services at install time, and the Debian defaults
+# listen on every interface. apt keeps an existing conffile (confold).
+
+- name: Monitoring | Configuration folders
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/prometheus
+    - /etc/prometheus/rules
+
+- name: Monitoring | Prometheus flags (before install)
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus
+    content: |
+      # Managed by Ansible (role monitoring_stack)
+      ARGS="--web.listen-address={{ monitoring_prometheus_listen }} --storage.tsdb.retention.time={{ monitoring_retention }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+# --cluster.listen-address= (empty) turns off the HA gossip port 9094: one
+# Alertmanager, nothing to cluster with.
+- name: Monitoring | Alertmanager flags (before install)
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-alertmanager
+    content: |
+      # Managed by Ansible (role monitoring_stack)
+      ARGS="--web.listen-address={{ monitoring_alertmanager_listen }} --cluster.listen-address="
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart alertmanager
+
+- name: Monitoring | Packages present
+  ansible.builtin.apt:
+    name:
+      - prometheus
+      - prometheus-alertmanager
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+# Rules first: prometheus.yml loads them and promtool checks both.
+- name: Monitoring | Alert rules
+  ansible.builtin.template:
+    src: selfheal.rules.yml.j2
+    dest: /etc/prometheus/rules/selfheal.rules.yml
+    owner: root
+    group: root
+    mode: "0644"
+    validate: promtool check rules %s
+  notify: Reload prometheus
+
+- name: Monitoring | Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: root
+    group: root
+    mode: "0644"
+    validate: promtool check config --syntax-only %s
+  notify: Reload prometheus
+
+- name: Monitoring | Alertmanager configuration
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: root
+    mode: "0644"
+    validate: amtool check-config %s
+  notify: Reload alertmanager
+
+- name: Monitoring | Services enabled and running
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - prometheus.service
+    - prometheus-alertmanager.service
+
+- name: Monitoring | Apply pending configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Monitoring | Both services ready
+  ansible.builtin.uri:
+    url: "http://{{ item }}/-/ready"
+  register: _monitoring_ready
+  until: _monitoring_ready.status == 200
+  retries: 15
+  delay: 2
+  loop:
+    - "{{ monitoring_prometheus_listen }}"
+    - "{{ monitoring_alertmanager_listen }}"
+  when: not ansible_check_mode

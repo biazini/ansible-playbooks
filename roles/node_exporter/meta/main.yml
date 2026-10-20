@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: node_exporter
+  namespace: infra
+  author: Guilherme Filho
+  description: Prometheus node_exporter from the Ubuntu archive, with the systemd collector limited to chosen units
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble, resolute]
+dependencies: []

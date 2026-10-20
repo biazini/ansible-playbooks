@@ -1,0 +1,35 @@
+# {{ ansible_managed }} (role monitoring_stack)
+# Automation first, humans when automation gives up:
+#   selfheal="true" -> eda-selfheal at once, and on-call only if the alert is
+#                      still firing after {{ monitoring_oncall_grace }} (an alert that resolves
+#                      before group_wait is never sent).
+#   anything else   -> on-call.
+route:
+  receiver: on-call
+  group_by: [alertname, inventory_hostname, name]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: eda-selfheal
+      matchers: ['selfheal="true"']
+      group_wait: 0s
+      group_interval: 10s
+      repeat_interval: {{ monitoring_eda_repeat_interval }}
+      continue: true
+    - receiver: on-call
+      matchers: ['selfheal="true"']
+      group_wait: {{ monitoring_oncall_grace }}
+
+receivers:
+  # ansible-rulebook, source ansible.eda.alertmanager (role eda_rulebook).
+  - name: eda-selfheal
+    webhook_configs:
+      - url: {{ monitoring_eda_webhook }}
+        send_resolved: true
+  # Lab stand-in for PagerDuty / Opsgenie / Teams: the "On-call pager"
+  # ruleset of the same rulebook logs every page to its journal.
+  - name: on-call
+    webhook_configs:
+      - url: {{ monitoring_oncall_webhook }}
+        send_resolved: true

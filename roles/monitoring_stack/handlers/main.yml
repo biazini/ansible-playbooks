@@ -1,0 +1,23 @@
+---
+# Flags (/etc/default/*) need a restart; configuration files only a reload
+# (SIGHUP, the packages' ExecReload). Restarts run first, so a reload never
+# hits a service that is about to restart anyway.
+- name: Restart prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus.service
+    state: restarted
+
+- name: Restart alertmanager
+  ansible.builtin.systemd_service:
+    name: prometheus-alertmanager.service
+    state: restarted
+
+- name: Reload prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus.service
+    state: reloaded
+
+- name: Reload alertmanager
+  ansible.builtin.systemd_service:
+    name: prometheus-alertmanager.service
+    state: reloaded

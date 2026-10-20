@@ -1,0 +1,22 @@
+---
+# =============================================================================
+# selfheal_chaos - break an allow-listed service on purpose, to exercise the
+# self-healing chain end to end (lab and game days only).
+# =============================================================================
+
+# Failure to inject:
+#   stop          clean "systemctl stop" (an operator mistake)
+#   kill          SIGKILL to every process of the unit (a crash): the unit
+#                 ends "failed"
+#   break_config  a broken nginx config file, then a crash: the remediation
+#                 precheck fails and the incident is escalated, not restarted
+#   restore       remove the broken file (the human fix). The service is NOT
+#                 started here: that is the job of "Self-Heal - Remediate
+#                 service" with selfheal_reset_breaker=true.
+chaos_mode: kill
+
+# Unit to break. Must be in selfheal_services (same allow-list as healing).
+chaos_unit: nginx.service
+
+# File written by break_config (nginx loads conf.d/*.conf).
+chaos_broken_file: /etc/nginx/conf.d/zz-chaos-broken.conf

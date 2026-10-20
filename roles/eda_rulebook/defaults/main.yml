@@ -1,0 +1,41 @@
+---
+# =============================================================================
+# eda_rulebook - ansible-rulebook (Event-Driven Ansible) as a systemd service
+# on the ops node, running extensions/eda/rulebooks/selfheal.yml.
+# Every tunable is here, with its reason.
+# =============================================================================
+
+# Unprivileged system account the rulebook runs as. It only needs to listen
+# on two loopback ports and call the Ascender API.
+eda_user: eda
+
+# Install folder: Python venv, collections, rulebook, vars and state (HOME).
+eda_home: /opt/eda-selfheal
+
+# Pinned versions: a rulebook engine upgrade is a reviewed commit, not a
+# side effect of a re-run. ansible-rulebook needs Java 17+ (Drools engine).
+eda_rulebook_version: "1.3.2"
+eda_collection_version: "2.13.0"     # ansible.eda (source ansible.eda.alertmanager)
+eda_java_package: openjdk-21-jre-headless
+
+# Rulebook shipped by this repository.
+eda_rulebook_src: "{{ playbook_dir }}/../extensions/eda/rulebooks/selfheal.yml"
+
+# Webhook listeners. Loopback only: Alertmanager runs on the same host.
+# Keep them in line with monitoring_eda_webhook / monitoring_oncall_webhook.
+eda_listen_host: 127.0.0.1
+eda_selfheal_port: 5050
+eda_pager_port: 5051
+
+# Job template launched by the rulebook, and its organization.
+eda_job_template: Self-Heal - Remediate service
+eda_organization: "{{ selfheal_organization | default('Default') }}"
+
+# Ascender URL and token, as environment variables for the service. Written
+# by role selfheal_controller (the token never goes to Git). The service is
+# only started once this file exists.
+eda_env_file: /etc/eda-selfheal/controller.env
+
+# Resolve *.localhost to the loopback with nss-myhostname (RFC 6761), as
+# browsers do, so EDA_CONTROLLER_URL can be http://ascender.localhost.
+eda_resolve_localhost: true

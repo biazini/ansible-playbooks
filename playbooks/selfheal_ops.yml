@@ -1,0 +1,27 @@
+---
+# =============================================================================
+# Self-healing lab - ops node (run from the workstation, not from Ascender)
+#
+# What:  on the WSL2 workstation that runs Ascender:
+#          monitoring_stack     Prometheus + Alertmanager (tag monitoring)
+#          eda_rulebook         ansible-rulebook as systemd unit (tag eda)
+#          selfheal_controller  Ascender templates, EDA account and token
+#                               (tag controller)
+# How:   from a clone inside the WSL filesystem, as root, with an Ascender
+#        administrator in the environment (never stored):
+#          export CONTROLLER_HOST=http://ascender.localhost CONTROLLER_USERNAME=admin
+#          read -rsp 'Ascender password: ' CONTROLLER_PASSWORD; export CONTROLLER_PASSWORD
+#          ansible-playbook -i inventories/lab/ playbooks/selfheal_ops.yml
+# Why local: the ops node is the platform Ascender itself runs on; Ascender
+#        never gets a credential for it (inventories/lab/ops.yml).
+# =============================================================================
+- name: Self-healing ops node
+  hosts: selfheal_ops
+  become: true
+  roles:
+    - role: monitoring_stack
+      tags: [monitoring]
+    - role: eda_rulebook
+      tags: [eda]
+    - role: selfheal_controller
+      tags: [controller]

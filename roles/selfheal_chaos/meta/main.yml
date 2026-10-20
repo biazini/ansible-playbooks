@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: selfheal_chaos
+  namespace: infra
+  author: Guilherme Filho
+  description: Inject failures into allow-listed services to test the self-healing chain
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble, resolute]
+dependencies: []

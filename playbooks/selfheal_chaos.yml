@@ -1,0 +1,17 @@
+---
+# =============================================================================
+# Self-healing lab - chaos test
+#
+# What:  roles/selfheal_chaos: stop, crash or misconfigure an allow-listed
+#        service on purpose, to exercise the whole chain (Prometheus ->
+#        Alertmanager -> ansible-rulebook -> Ascender -> remediation).
+# Where: Ascender job template "Self-Heal - Chaos test" (survey: chaos_mode,
+#        chaos_unit). Always launch it with a limit.
+# Never: on production hosts outside a planned game day.
+# =============================================================================
+- name: Self-healing chaos test
+  hosts: selfheal_targets
+  become: true
+  gather_facts: false
+  roles:
+    - role: selfheal_chaos

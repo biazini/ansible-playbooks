@@ -1,0 +1,3 @@
+---
+# Internal values derived from the request (not meant to be overridden).
+_sh_history_file: "{{ selfheal_state_dir }}/{{ _sh_unit }}.restarts"

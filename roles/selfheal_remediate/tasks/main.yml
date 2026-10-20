@@ -1,0 +1,29 @@
+---
+# Entry point. Order matters:
+#   validate  the request comes from an event: one host, allow-listed unit
+#   history   breaker history (cleared first when a human asks for it)
+#   inspect   evidence for the job log; stop here if the unit is active again
+#   breaker   too many automatic restarts -> escalate, do not restart
+#   precheck  configuration test -> escalate a broken config, do not restart
+#   heal      record, restart, verify (unit active + health URL)
+#   report    outage timeline and job statistics
+- name: Validate the request
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Breaker history
+  ansible.builtin.import_tasks: history.yml
+
+- name: Inspect the unit
+  ansible.builtin.import_tasks: inspect.yml
+
+- name: Circuit breaker
+  ansible.builtin.import_tasks: breaker.yml
+
+- name: Pre-restart check
+  ansible.builtin.import_tasks: precheck.yml
+
+- name: Restart and verify
+  ansible.builtin.import_tasks: heal.yml
+
+- name: Report
+  ansible.builtin.import_tasks: report.yml

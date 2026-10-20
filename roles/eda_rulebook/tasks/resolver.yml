@@ -1,0 +1,26 @@
+---
+# glibc resolves "localhost" from /etc/hosts but not "ascender.localhost";
+# browsers (and curl) treat every *.localhost as loopback. nss-myhostname
+# gives the system resolver the same behaviour, so Python (aiohttp, the
+# awx.awx modules) can use the same URL as the browser. /etc/hosts is not
+# edited: WSL regenerates it at every start.
+
+- name: EDA | nss-myhostname installed
+  ansible.builtin.apt:
+    name: libnss-myhostname
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: EDA | myhostname in the hosts lookup, after files
+  ansible.builtin.replace:
+    path: /etc/nsswitch.conf
+    regexp: '^(hosts:\s+files)(?!.*\bmyhostname\b)(.*)$'
+    replace: '\1 myhostname\2'
+
+- name: EDA | ascender.localhost resolves to the loopback
+  ansible.builtin.command: getent hosts ascender.localhost
+  register: _eda_getent
+  changed_when: false
+  failed_when: _eda_getent.rc != 0 or _eda_getent.stdout is not search('^(127\\.0\\.0\\.1|::1)\\s')
+  when: not ansible_check_mode

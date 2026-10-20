@@ -12,3 +12,5 @@ collections:
     version: ">=1.5.0"
   - name: ansible.utils       # in_any_network test
     version: ">=4.0.0"
+  - name: awx.awx             # Ascender objects as code (role selfheal_controller, ops node)
+    version: ">=24.6.1"

@@ -1,0 +1,22 @@
+---
+# Diagnose before acting: when the configuration is broken, a restart fails
+# anyway (and a loop of failed restarts hides the real error). Escalate with
+# the error message instead. Not counted by the breaker: nothing restarted.
+
+- name: Precheck | Configuration test
+  ansible.builtin.command:
+    cmd: "{{ _sh_spec.precheck }}"
+  register: _sh_precheck
+  changed_when: false
+  failed_when: false
+  when: _sh_spec.precheck | default('') | length > 0
+
+- name: Precheck | Escalate a broken configuration
+  ansible.builtin.fail:
+    msg: >-
+      ESCALATE - '{{ _sh_spec.precheck }}' failed on {{ inventory_hostname }}
+      (rc={{ _sh_precheck.rc }}): {{ _sh_precheck.stderr | default('') | trim }}.
+      A restart cannot fix a broken configuration; on-call is paged.
+  when:
+    - _sh_precheck is not skipped
+    - _sh_precheck.rc != 0

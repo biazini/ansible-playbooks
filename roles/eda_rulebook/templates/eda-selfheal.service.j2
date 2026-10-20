@@ -1,0 +1,41 @@
+# {{ ansible_managed }} (role eda_rulebook)
+[Unit]
+Description=Event-Driven Ansible - self-healing rulebook (Alertmanager -> Ascender)
+Documentation=https://ansible.readthedocs.io/projects/rulebook/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ eda_user }}
+Group={{ eda_user }}
+# EDA_CONTROLLER_URL / EDA_CONTROLLER_TOKEN (role selfheal_controller)
+EnvironmentFile={{ eda_env_file }}
+Environment=HOME={{ eda_home }}/state
+Environment=PATH={{ eda_home }}/venv/bin:/usr/bin:/bin
+Environment=ANSIBLE_COLLECTIONS_PATH={{ eda_home }}/collections
+Environment=JAVA_HOME={{ _eda_java_home }}
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory={{ eda_home }}/state
+ExecStart={{ eda_home }}/venv/bin/ansible-rulebook \
+  --rulebook {{ eda_home }}/rulebooks/selfheal.yml \
+  --vars {{ eda_home }}/vars.yml \
+  --verbose
+Restart=on-failure
+RestartSec=5
+
+# Hardening: read-only system, no privilege gain, only its state folder
+# writable. No MemoryDenyWriteExecute: the JVM JIT needs it.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths={{ eda_home }}/state
+
+[Install]
+WantedBy=multi-user.target

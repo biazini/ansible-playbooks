@@ -1,0 +1,86 @@
+---
+# =============================================================================
+# Self-healing rulebook (Event-Driven Ansible)
+#
+# Alertmanager -> ansible-rulebook -> Ascender job template.
+# Kept in extensions/eda/rulebooks/, the layout an EDA Controller project
+# expects, so the same file works if a controller replaces the systemd unit.
+#
+# Runs on the ops node as systemd unit eda-selfheal (role eda_rulebook).
+# Variables come from --vars (eda_home/vars.yml); the Ascender URL and token
+# from the environment (EDA_CONTROLLER_URL, EDA_CONTROLLER_TOKEN).
+# =============================================================================
+
+# Ruleset 1 - automation: launch the remediation for a service that is down.
+- name: Self-healing - remediate failed services
+  hosts: all
+  sources:
+    - name: Alertmanager (route eda-selfheal)
+      ansible.eda.alertmanager:
+        host: "{{ selfheal_listen_host }}"
+        port: "{{ selfheal_port }}"
+        data_alerts_path: alerts
+        data_host_path: labels.inventory_hostname
+        skip_original_data: true
+  rules:
+    # Only alerts that the rules mark as healable. The remediation playbook
+    # validates the unit against its own allow-list again: the event is
+    # never trusted on its own.
+    - name: Service down - launch remediation in Ascender
+      condition: >-
+        event.alert.status == "firing"
+        and event.alert.labels.alertname == "SelfHealServiceDown"
+        and event.alert.labels.selfheal == "true"
+      # Alertmanager may deliver the same alert twice (retries, restarts):
+      # one job per host and unit every 30 seconds at most.
+      throttle:
+        once_within: 30 seconds
+        group_by_attributes:
+          - event.alert.labels.inventory_hostname
+          - event.alert.labels.name
+      action:
+        run_job_template:
+          name: "{{ selfheal_job_template }}"
+          organization: "{{ selfheal_organization }}"
+          job_args:
+            limit: "{{ event.alert.labels.inventory_hostname }}"
+            extra_vars:
+              selfheal_service: "{{ event.alert.labels.name }}"
+
+    - name: Service healthy again
+      condition: >-
+        event.alert.status == "resolved"
+        and event.alert.labels.alertname == "SelfHealServiceDown"
+      action:
+        debug:
+          msg: "RESOLVED {{ event.alert.labels.name }} on {{ event.alert.labels.inventory_hostname }}"
+
+# Ruleset 2 - lab stand-in for a paging service (PagerDuty, Opsgenie, Teams).
+# Alertmanager only calls it when automation did not fix the alert within
+# the grace period, or for alerts automation cannot fix at all.
+- name: On-call pager (lab)
+  hosts: all
+  sources:
+    - name: Alertmanager (route on-call)
+      ansible.eda.alertmanager:
+        host: "{{ selfheal_listen_host }}"
+        port: "{{ pager_port }}"
+        data_alerts_path: alerts
+        data_host_path: labels.inventory_hostname
+        skip_original_data: true
+  rules:
+    - name: Page the on-call engineer
+      condition: event.alert.status == "firing"
+      action:
+        debug:
+          msg: >-
+            PAGE ON-CALL - {{ event.alert.labels.alertname }}:
+            {{ event.alert.annotations.summary }} (since {{ event.alert.startsAt }})
+
+    - name: Tell on-call the incident is over
+      condition: event.alert.status == "resolved"
+      action:
+        debug:
+          msg: >-
+            RESOLVED for on-call - {{ event.alert.labels.alertname }}:
+            {{ event.alert.annotations.summary }}

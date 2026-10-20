@@ -1,0 +1,33 @@
+---
+# Breaker history: one epoch (controller clock) per automatic restart, in
+# selfheal_state_dir on the host. Only restarts inside the window count.
+
+- name: History | State directory
+  ansible.builtin.file:
+    path: "{{ selfheal_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: History | Cleared by a human (selfheal_reset_breaker)
+  ansible.builtin.file:
+    path: "{{ _sh_history_file }}"
+    state: absent
+  when: selfheal_reset_breaker | bool
+
+- name: History | Read previous automatic restarts
+  ansible.builtin.slurp:
+    src: "{{ _sh_history_file }}"
+  register: _sh_history_raw
+  failed_when: false
+
+# now(fmt='%s') is the epoch whatever the controller's time zone.
+- name: History | Restarts inside the breaker window
+  ansible.builtin.set_fact:
+    _sh_now: "{{ now(fmt='%s') | int }}"
+    _sh_recent: >-
+      {{ (_sh_history_raw.content | default('') | b64decode).split()
+         | map('int')
+         | select('ge', (now(fmt='%s') | int) - (selfheal_breaker_window_minutes | int) * 60)
+         | list }}

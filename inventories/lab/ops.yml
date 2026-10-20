@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# Self-healing ops node - local runs only, never imported into Ascender.
+#
+# The WSL2 workstation that already runs Ascender also runs Prometheus,
+# Alertmanager and ansible-rulebook (roles monitoring_stack, eda_rulebook)
+# and holds the Ascender configuration as code (role selfheal_controller).
+# Ascender's inventory source loads hosts.yml only, so this file keeps the
+# workstation out of every Ascender job.
+#
+# Run with the whole folder as inventory, so the ops play can read the
+# selfheal_targets group from hosts.yml:
+#   ansible-playbook -i inventories/lab/ playbooks/selfheal_ops.yml
+# =============================================================================
+all:
+  children:
+    selfheal_ops:
+      hosts:
+        wsl-ops:
+          ansible_connection: local
+          ansible_python_interpreter: /usr/bin/python3

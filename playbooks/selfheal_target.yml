@@ -1,0 +1,19 @@
+---
+# =============================================================================
+# Self-healing lab - deploy the monitored workload
+#
+# What:  nginx demo site (roles/nginx_web) and Prometheus node_exporter with
+#        the systemd collector limited to selfheal_services
+#        (roles/node_exporter) on every host in selfheal_targets.
+# Where: Ascender job template "Self-Heal - Deploy target".
+# Needs: the host was bootstrapped (playbooks/bootstrap.yml). On CIS hosts
+#        the roles open their ports in ufw for the listed sources only.
+# =============================================================================
+- name: Self-healing target - workload and exporter
+  hosts: selfheal_targets
+  become: true
+  serial: "{{ selfheal_serial | default('20%') }}"
+  max_fail_percentage: 0
+  roles:
+    - role: nginx_web
+    - role: node_exporter

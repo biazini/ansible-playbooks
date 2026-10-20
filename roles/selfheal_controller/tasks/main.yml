@@ -1,0 +1,32 @@
+---
+# Ascender configuration for self-healing, as code. Tags: controller.
+#   preflight  admin credentials present in the environment
+#   templates  branch override, label, the three job templates, team access
+#   eda_user   least-privilege account for ansible-rulebook
+#   token      API token for that account, written for the eda-selfheal unit
+#   sync       project and inventory source on the latest commit
+
+- name: Controller | Preflight
+  ansible.builtin.assert:
+    that:
+      - lookup('ansible.builtin.env', 'CONTROLLER_HOST') | length > 0
+      - lookup('ansible.builtin.env', 'CONTROLLER_USERNAME') | length > 0
+      - lookup('ansible.builtin.env', 'CONTROLLER_PASSWORD') | length > 0
+      - selfheal_project | length > 0
+      - selfheal_inventory | length > 0
+      - selfheal_machine_credential | length > 0
+    fail_msg: >-
+      Export CONTROLLER_HOST, CONTROLLER_USERNAME and CONTROLLER_PASSWORD
+      (an Ascender administrator) before running, and set the selfheal_*
+      object names (inventories/lab/group_vars/selfheal_ops.yml).
+    quiet: true
+
+- name: Controller | Job templates
+  ansible.builtin.import_tasks: templates.yml
+
+- name: Controller | Event-Driven Ansible account and token
+  ansible.builtin.import_tasks: eda_account.yml
+
+- name: Controller | Project and inventory on the latest commit
+  ansible.builtin.import_tasks: sync.yml
+  when: selfheal_sync_project | bool

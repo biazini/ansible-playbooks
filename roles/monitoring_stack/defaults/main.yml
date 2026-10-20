@@ -1,0 +1,45 @@
+---
+# =============================================================================
+# monitoring_stack - Prometheus + Alertmanager (Ubuntu packages) on the ops
+# node: watch the self-healing targets and route alerts to Event-Driven
+# Ansible first and to a human second. Every tunable is here, with its reason.
+# =============================================================================
+
+# --- Listen addresses -----------------------------------------------------------
+# Loopback only. The packages listen on every interface by default; under
+# WSL2 mirrored networking that means the LAN. The workstation browser still
+# reaches both UIs on http://localhost:9090 and :9093.
+monitoring_prometheus_listen: 127.0.0.1:9090
+monitoring_alertmanager_listen: 127.0.0.1:9093
+
+# --- Prometheus -----------------------------------------------------------------
+# Short intervals: detection time is scrape + evaluation + "for". 5 s is fine
+# for a handful of targets; use 15-30 s for a real fleet.
+monitoring_scrape_interval: 5s
+monitoring_evaluation_interval: 5s
+monitoring_retention: 7d
+
+# Inventory group scraped by job "selfheal_targets". Each host gives its
+# scrape address in selfheal_exporter_target (inventories/lab/hosts.yml).
+monitoring_target_group: selfheal_targets
+
+# How long a unit must be down before SelfHealServiceDown fires. Filters
+# a restart in progress (deploys, package upgrades) from a real outage.
+monitoring_service_down_for: 10s
+# How long a target must be unreachable before SelfHealTargetDown fires.
+monitoring_target_down_for: 30s
+
+# --- Alertmanager routing -------------------------------------------------------
+# Self-healing alerts (label selfheal="true") go to two receivers:
+#   eda-selfheal  ansible-rulebook, immediately (group_wait 0s)
+#   on-call       the human, only if the alert is still firing after
+#                 monitoring_oncall_grace: when automation heals in time the
+#                 alert resolves first and nobody is woken up.
+# Everything else (e.g. SelfHealTargetDown) goes straight to on-call.
+monitoring_eda_webhook: http://127.0.0.1:5050/alerts
+monitoring_oncall_webhook: http://127.0.0.1:5051/page
+monitoring_oncall_grace: 2m
+
+# One notification per incident to EDA. A repeat would launch the remediation
+# again for an alert that automation already gave up on (breaker open).
+monitoring_eda_repeat_interval: 1h

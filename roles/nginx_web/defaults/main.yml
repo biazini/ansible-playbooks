@@ -1,0 +1,16 @@
+---
+# =============================================================================
+# nginx_web - the demo workload of the self-healing lab: nginx serving one
+# page and a /healthz endpoint. Every tunable is here, with its reason.
+# =============================================================================
+
+# Port nginx listens on (IPv4 and IPv6).
+nginx_web_port: 80
+
+# Sources allowed to reach the port through ufw. Empty = no rule is added
+# (the page is then only reachable from the host itself, which is all the
+# health check needs). Rules are only written when ufw is installed.
+nginx_web_allow_from: []
+
+# Title shown on the demo page.
+nginx_web_title: Self-healing lab

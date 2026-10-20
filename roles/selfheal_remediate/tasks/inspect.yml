@@ -1,0 +1,55 @@
+---
+# Evidence first: whoever reads the job later (or the human paged after an
+# escalation) sees the unit state and its last journal lines without
+# logging in to the host.
+
+# No "state": read-only, returns every unit property in "status".
+- name: Inspect | Unit state before any action
+  ansible.builtin.systemd_service:
+    name: "{{ _sh_unit }}"
+  register: _sh_before
+
+# --timestamp=unix prints "@<epoch>": the moment the unit went down, on the
+# host clock (used for the outage timeline in report.yml). The systemd
+# module only returns the human-readable timestamp, hence the command.
+- name: Inspect | When the unit went down  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    systemctl show {{ _sh_unit }} --timestamp=unix
+    --property=InactiveEnterTimestamp --value
+  register: _sh_down_at
+  changed_when: false
+
+- name: Inspect | Recent journal of the unit
+  ansible.builtin.command: >-
+    journalctl --unit={{ _sh_unit }} --lines={{ selfheal_journal_lines }}
+    --no-pager --output=short-iso
+  register: _sh_journal
+  changed_when: false
+
+- name: Inspect | Evidence
+  ansible.builtin.debug:
+    msg:
+      - >-
+        {{ _sh_unit }}: ActiveState={{ _sh_before.status.ActiveState }}
+        SubState={{ _sh_before.status.SubState }} Result={{ _sh_before.status.Result }}
+        ExecMainStatus={{ _sh_before.status.ExecMainStatus }}
+      - "Automatic restarts in the last {{ selfheal_breaker_window_minutes }} min: {{ _sh_recent | length }}/{{ selfheal_breaker_max }}"
+      - "{{ _sh_journal.stdout_lines }}"
+
+# A duplicate event, or the unit came back before the job started (someone
+# fixed it, or systemd restarted it): nothing to heal.
+- name: Inspect | Unit already active
+  when: _sh_before.status.ActiveState == 'active'
+  block:
+    - name: Inspect | No action needed
+      ansible.builtin.debug:
+        msg: "{{ _sh_unit }} is active on {{ inventory_hostname }}: no action taken."
+
+    - name: Inspect | Job statistics
+      ansible.builtin.set_stats:
+        data:
+          selfheal_result: no_action
+          selfheal_unit: "{{ _sh_unit }}"
+
+    - name: Inspect | Stop here for this host
+      ansible.builtin.meta: end_host

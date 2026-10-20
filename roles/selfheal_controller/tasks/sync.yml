@@ -1,0 +1,16 @@
+---
+# The remediation runs without "update on launch" (every second counts in an
+# incident), so Ascender must already hold the commit just pushed.
+- name: Controller | Project sync
+  awx.awx.project_update:
+    name: "{{ selfheal_project }}"
+    organization: "{{ selfheal_organization }}"
+    wait: true
+
+- name: Controller | Inventory source sync
+  awx.awx.inventory_source_update:
+    name: "{{ selfheal_inventory_source }}"
+    inventory: "{{ selfheal_inventory }}"
+    organization: "{{ selfheal_organization }}"
+    wait: true
+  when: selfheal_inventory_source | length > 0

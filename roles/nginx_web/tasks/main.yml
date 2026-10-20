@@ -1,0 +1,86 @@
+---
+# Demo workload for self-healing: nginx with one static page and /healthz.
+# The site replaces the Debian "default" site, so the host serves exactly
+# what this role describes. Every config change is tested with "nginx -t"
+# before nginx reloads (handler).
+
+- name: Nginx | Package present
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Nginx | Hardening snippet (no version banner)
+  ansible.builtin.copy:
+    dest: /etc/nginx/conf.d/10-hardening.conf
+    content: |
+      # Managed by Ansible (role nginx_web)
+      server_tokens off;
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Nginx | Demo site
+  ansible.builtin.template:
+    src: selfheal-lab.conf.j2
+    dest: /etc/nginx/sites-available/selfheal-lab
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Nginx | Demo site enabled
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/selfheal-lab
+    dest: /etc/nginx/sites-enabled/selfheal-lab
+    state: link
+  notify: Reload nginx
+
+- name: Nginx | Debian default site disabled
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Nginx | Demo page
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Nginx | Is ufw installed
+  ansible.builtin.stat:
+    path: /usr/sbin/ufw
+  register: _nginx_web_ufw
+
+- name: Nginx | Port allowed through ufw from the listed sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    port: "{{ nginx_web_port | string }}"
+    from_ip: "{{ item }}"
+    comment: "nginx_web demo page"
+  loop: "{{ nginx_web_allow_from }}"
+  when: _nginx_web_ufw.stat.exists
+
+- name: Nginx | Service enabled and running
+  ansible.builtin.systemd_service:
+    name: nginx.service
+    enabled: true
+    state: started
+
+- name: Nginx | Apply pending configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Nginx | Health endpoint answers
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ nginx_web_port }}/healthz"
+    return_content: true
+  register: _nginx_web_health
+  failed_when: _nginx_web_health.status != 200 or 'ok' not in _nginx_web_health.content
+  when: not ansible_check_mode

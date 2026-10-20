@@ -1,0 +1,13 @@
+---
+# Test the whole configuration first: a reload with a broken file would keep
+# the old config running but hide the error until the next restart.
+- name: Test nginx configuration
+  ansible.builtin.command: nginx -t -q
+  changed_when: false
+  listen: Reload nginx
+
+- name: Reload nginx service
+  ansible.builtin.systemd_service:
+    name: nginx.service
+    state: reloaded
+  listen: Reload nginx

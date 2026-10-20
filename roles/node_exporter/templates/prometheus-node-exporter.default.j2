@@ -1,0 +1,9 @@
+# {{ ansible_managed }} (role node_exporter)
+# Read by prometheus-node-exporter.service ("prometheus-node-exporter $ARGS").
+{% set _args = ['--web.listen-address=:' ~ node_exporter_port] %}
+{% if node_exporter_systemd_units | length > 0 %}
+{%   set _units = node_exporter_systemd_units | map('replace', '.', '[.]') | join('|') %}
+{%   set _args = _args + ['--collector.systemd', '--collector.systemd.unit-include=(' ~ _units ~ ')'] %}
+{% endif %}
+{% set _args = _args + node_exporter_extra_args %}
+ARGS="{{ _args | join(' ') }}"
