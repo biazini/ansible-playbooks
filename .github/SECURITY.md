@@ -17,13 +17,13 @@ This repository contains automation content (playbooks, roles, inventories), its
 
 ## Reporting a vulnerability
 
-Please **do not** disclose security problems publicly. This repository is private, so GitHub's private vulnerability reporting is not available. Report directly to the maintainer, [@biazini](https://github.com/biazini), with:
+Please **do not** disclose security problems publicly. Report them privately through GitHub:
 
-1. the affected file, role or playbook;
-2. the risk and how it can be triggered;
-3. a suggested correction, if you have one.
+1. Open the repository's **Security** tab.
+2. Select **Report a vulnerability** — or go directly to <https://github.com/biazini/ansible-playbooks/security/advisories/new>.
+3. Describe the affected file, role or playbook, the risk and how it can be triggered, and a suggested correction if you have one.
 
-Reports are reviewed on a best-effort basis. Confirmed problems are corrected here and rolled out with the *Check (dry run)* and *Apply* job templates.
+Reports are reviewed on a best-effort basis. Confirmed problems are corrected here and rolled out with the *Check (dry run)* and *Apply* job templates, and the reporter is credited unless they prefer otherwise.
 
 ## Never commit secrets
 

@@ -1,6 +1,13 @@
 # Contributing
 
-This repository is a **private, personal automation repository**: issues are disabled and outside contributions are not accepted. The content is maintained by its owner and runs against real hosts through Ascender, so every change goes through the owner's review and the checks below.
+Thank you for your interest in this repository.
+
+This is a **personal automation repository, published for reference**: issues are disabled and outside contributions are not accepted. The content is maintained by its owner and runs against real hosts through Ascender, so every change goes through the owner's review and the checks below.
+
+## What you can do
+
+- **Use it.** Clone or fork the repository and adapt the roles and playbooks to your environment, under the terms of the [licenses](../README.md#license): MIT for code and configuration files, CC BY 4.0 for documentation and diagrams. Validate every change in a non-production environment first.
+- **Report a security problem** in this content privately, as described below.
 
 ## Rules for every change
 

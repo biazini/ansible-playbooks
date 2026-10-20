@@ -89,7 +89,7 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 
 Figure 1 is the logical view: engineers change content in Git, Ascender turns that content into job templates, and the Execution Environment applies it to the managed servers over SSH. Figure 2 is the lab as built: Ascender runs on k3s inside WSL2 on a Windows 11 workstation, and the managed host is an Ubuntu 26.04 VM in VirtualBox on the same machine, reached through a port forward and a relay.
 
-- **Source control** — private GitHub repository `biazini/ansible-playbooks`, branch `main`. Ascender reads it with a fine-grained token that can only read this repository.
+- **Source control** — public GitHub repository `biazini/ansible-playbooks`, branch `main`. Ascender reads it with a fine-grained token that can only read this repository.
 - **Control plane** — Ascender 25.6.2, organization **Linux Infrastructure**: project, inventory, credentials, job templates and team.
 - **Execution** — every job runs in a pod from `ascender-ee:25.6.2` (ansible-runner, ansible-core 2.16, the collections and `netaddr`). The machine credential is loaded into an ssh-agent for the duration of the job only.
 - **Managed hosts** — Ubuntu servers in inventory group `ubuntu_cis_l1`, administered through the key-only account `svc_ansible`.
@@ -98,7 +98,7 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 
 | Component | Object / location | Responsibility |
 |---|---|---|
-| Repository | `github.com/biazini/ansible-playbooks` (private) | Playbooks, roles, inventories, collection requirements, documentation. |
+| Repository | `github.com/biazini/ansible-playbooks` (public) | Playbooks, roles, inventories, collection requirements, documentation. |
 | Project | **Linux Playbooks** · credential `GitHub - ansible-playbooks` | Clones `main` into Ascender and installs `collections/requirements.yml` on every sync. |
 | Inventory | **Linux Inventory** · source `Linux Playbooks - lab` | Loads `inventories/lab/hosts.yml` and its `group_vars/`; syncs on every job launch. |
 | Source control credential | `GitHub - ansible-playbooks` | GitHub user + fine-grained token (contents: read-only, this repository only). |
