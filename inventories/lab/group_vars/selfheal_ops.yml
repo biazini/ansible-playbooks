@@ -21,6 +21,8 @@ selfheal_machine_credential: Ubuntu VM - svc_ansible (SSH key)
 selfheal_team: Linux Team
 
 # Git branch the self-healing templates run from. Empty = the project branch
-# (main). Set it on the command line to try a feature branch end to end:
+# (main). A value makes Ascender clone that branch and download the
+# collections again for EVERY job (60-90 s, and a Galaxy outage fails the
+# remediation): fine to try a change once, never for the running lab.
 #   -e selfheal_scm_branch=feature/eda-self-healing
 selfheal_scm_branch: ""

@@ -21,7 +21,9 @@ selfheal_team: ""                 # granted execute on the three templates; empt
 
 # Git branch the templates (and the inventory source) run from. Empty = the
 # project's branch. A value needs "Allow branch override" on the project,
-# which the role then turns on.
+# which the role then turns on. Cost: every job then syncs that branch and
+# its collections before it starts (no cache), so keep it empty for
+# remediation in real use.
 selfheal_scm_branch: ""
 
 # Label put on the templates (filter for jobs in Views -> Jobs).

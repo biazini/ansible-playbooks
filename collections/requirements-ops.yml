@@ -1,0 +1,12 @@
+---
+# Collections for the self-healing ops node only (playbooks/selfheal_ops.yml,
+# run from the workstation). Not read by Ascender, on purpose: see
+# requirements.yml. Ubuntu's "ansible" package already ships all of them.
+#   ansible-galaxy collection install -r collections/requirements-ops.yml
+collections:
+  - name: awx.awx             # Ascender objects as code (role selfheal_controller)
+    version: ">=24.6.1"
+  - name: community.general   # ansible_galaxy_install (role eda_rulebook)
+    version: ">=9.0.0"
+# ansible.eda is NOT listed: role eda_rulebook installs a pinned version into
+# the rulebook's own collection path (/opt/eda-selfheal/collections).
