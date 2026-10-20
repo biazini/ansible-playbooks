@@ -7,6 +7,11 @@ server {
     root /var/www/html;
     index index.html;
 
+    # No version in the Server header. Set at server level: Ubuntu 26.04
+    # already sets it in nginx.conf (http level), and a second http-level
+    # server_tokens is a "duplicate directive" error.
+    server_tokens off;
+
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
 

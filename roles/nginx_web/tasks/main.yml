@@ -11,17 +11,6 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: Nginx | Hardening snippet (no version banner)
-  ansible.builtin.copy:
-    dest: /etc/nginx/conf.d/10-hardening.conf
-    content: |
-      # Managed by Ansible (role nginx_web)
-      server_tokens off;
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Reload nginx
-
 - name: Nginx | Demo site
   ansible.builtin.template:
     src: selfheal-lab.conf.j2
