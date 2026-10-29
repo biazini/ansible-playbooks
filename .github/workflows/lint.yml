@@ -1,0 +1,45 @@
+# Lint on every pull request and push to main: ansible-lint with the
+# repository's .ansible-lint, a syntax check of every playbook, and
+# shellcheck for the shell scripts the roles copy to hosts.
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ansible:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ansible-core 2.16 is the version of the Ascender Execution Environment.
+      - name: Install ansible-core, ansible-lint and netaddr
+        run: pip install "ansible-core>=2.16,<2.17" ansible-lint netaddr
+
+      - name: Install collections
+        run: |
+          ansible-galaxy collection install -r collections/requirements.yml
+          ansible-galaxy collection install -r collections/requirements-ops.yml
+
+      - name: ansible-lint
+        run: ansible-lint
+
+      - name: Syntax check of every playbook
+        run: |
+          for p in playbooks/*.yml; do
+            echo "== $p"
+            ansible-playbook -i inventories/lab/hosts.yml --syntax-check "$p"
+          done
+
+      - name: shellcheck
+        run: shellcheck roles/*/files/*.sh
