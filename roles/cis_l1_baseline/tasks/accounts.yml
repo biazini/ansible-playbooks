@@ -79,6 +79,40 @@
     - _cis_pam_profiles is changed
   changed_when: true
 
+# CIS 5.3.3.4.1: the benchmark's remediation edits the pam_unix profile in
+# /usr/share/pam-configs and regenerates /etc/pam.d/common-*. An upgrade of
+# libpam-runtime can put nullok back; the next run removes it again.
+- name: Accounts | pam_unix profile without nullok
+  ansible.builtin.replace:
+    path: /usr/share/pam-configs/unix
+    regexp: '\s+nullok\b'
+    replace: ''
+  when:
+    - cis_manage_pam | bool
+    - cis_pam_remove_nullok | bool
+  register: _cis_pam_nullok
+
+- name: Accounts | Regenerate common-* without nullok
+  ansible.builtin.command: pam-auth-update --enable unix
+  when: _cis_pam_nullok is changed
+  changed_when: true
+
+# ---------------- su restricted to an empty group (CIS 5.2.7) ---------------
+- name: Accounts | Empty group allowed to use su
+  ansible.builtin.group:
+    name: "{{ cis_su_group }}"
+    system: true
+    state: present
+  when: cis_restrict_su | bool
+
+- name: Accounts | su requires membership of that group
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^\s*auth\s+required\s+pam_wheel\.so'
+    line: "auth       required   pam_wheel.so use_uid group={{ cis_su_group }}"
+    insertafter: '^\s*auth\s+sufficient\s+pam_rootok\.so'
+  when: cis_restrict_su | bool
+
 # ---------------- Shell defaults ---------------------------------------------
 - name: Accounts | Interactive shell timeout and umask
   ansible.builtin.copy:

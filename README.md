@@ -311,7 +311,7 @@ Take a snapshot or backup of the host (powered off for VirtualBox, see [7.4](#74
 
 Reboot the host (applies the `/tmp` mount options), then launch **Ubuntu CIS L1 - Smoke test**.
 
-✅ **Expected result** — `Result: 37 passed, 0 failed`.
+✅ **Expected result** — `Result: 51 passed, 0 failed`.
 
 ---
 

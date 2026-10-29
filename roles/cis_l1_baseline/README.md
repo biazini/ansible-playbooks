@@ -7,10 +7,10 @@ Applies the **CIS Ubuntu Linux 26.04 LTS Benchmark, Level 1 – Server** profile
 | **Target** | Ubuntu 26.04 LTS · Ubuntu 24.04 LTS |
 | **Benchmark** | CIS Ubuntu Linux 26.04 LTS v1.0.0 · Level 1 – Server |
 | **Requires** | ansible-core ≥ 2.16 · `community.general` · `ansible.posix` · `ansible.utils` · `netaddr` on the controller |
-| **Validated** | Ubuntu 26.04.1 LTS · smoke test 37/37 · second run `changed=0` |
+| **Validated** | Ubuntu 26.04.1 LTS · smoke test 37/37 · second run `changed=0` (before the 26.04 v1.0.0 reconciliation; the 14 checks added with it still need a run on a host) |
 
 > [!IMPORTANT]
-> The role follows the 22.04/24.04 control set plus the 26.04 platform changes (sudo-rs, chrony with NTS, OpenSSH 10.x). Reconcile control numbers against the CIS 26.04 v1.0.0 PDF before claiming compliance, and audit with an independent tool (see [6. Verification](#6-verification)).
+> Control numbers in this README and in `defaults/main.yml` were reconciled against the CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0 PDF. Level 1 controls the role does not automate are listed in [5.1](#51-level-1-controls-not-automated). Audit with an independent tool before claiming compliance (see [6. Verification](#6-verification)).
 
 ## Contents
 
@@ -110,12 +110,16 @@ than find out halfway.
 ### 3.3 Kernel modules (`tasks/kernel_modules.yml`)
 
 Filesystems the server never uses (`cramfs`, `freevxfs`, `hfs`, `hfsplus`,
-`jffs2`) and `usb-storage` get `install <mod> /bin/false` plus `blacklist`.
-A filesystem driver that is never loaded cannot be exploited by mounting
-crafted media.
+`jffs2`), `usb-storage`, `firewire-core` and uncommon network protocols
+(`atm`, `can`, `dccp`, `rds`, `sctp`, `tipc`; CIS 3.2.x) get
+`install <mod> /bin/false` plus `blacklist`. A driver that is never loaded
+cannot be exploited by mounting crafted media or sending crafted packets.
 
-- `squashfs` and `udf` are Level 2 in 22.04/24.04 and are **off by default**:
+- `squashfs` and `udf` are Level 2 (22.04/24.04/26.04) and are **off by default**:
   disabling `squashfs` breaks every snap (LXD, livepatch, several agents).
+- Applications that need one of the network protocols (for example `sctp` for
+  telecom or Diameter stacks) remove it from `cis_disabled_net_modules` and
+  register the exception.
 - `iso9660` and `overlay` are refused outright. vSphere guest customisation
   and cloud-init media use `iso9660`; containerd and Docker need `overlay`.
 
@@ -138,6 +142,12 @@ bits.
   scripts to `/tmp` and runs them. `tasks/apt.yml` points it at
   `/var/cache/apt/tmp` (root-only, executable) so package installs keep
   working.
+- **APT repositories** (`tasks/apt.yml`, CIS 1.2.1.x): `http://` URIs are
+  rewritten to `https://` (`cis_apt_https`), followed by `apt-get update`. If
+  that fails (a mirror or proxy without TLS), the previous files are put back
+  and the run warns instead of breaking package installs. Unsigned, weakly
+  signed and downgraded repositories are refused explicitly, and the APT
+  directories and source files get root-only write permissions.
 - Anything else that uploads a script to `/tmp` and runs it directly must use
   another directory: Terraform `remote-exec` (set `script_path` to a directory
   in the automation user's home), Packer's `shell` provisioner (set
@@ -146,9 +156,14 @@ bits.
 
 ### 3.5 Kernel and network parameters (`tasks/sysctl.yml`)
 
-[`templates/60-cis.conf.j2`](templates/60-cis.conf.j2) sets ASLR, ptrace
-restrictions, no setuid core dumps, no IP forwarding, no ICMP redirects or
-source routing, reverse-path filtering, martian logging and SYN cookies. Core
+[`templates/60-cis.conf.j2`](templates/60-cis.conf.j2) sets ASLR, ptrace,
+`dmesg` and kernel pointer restrictions, protected hard links, no setuid core
+dumps, no IP forwarding (global and per interface, IPv4 and IPv6), no
+`route_localnet`, no ICMP redirects or source routing, reverse-path filtering,
+martian logging and SYN cookies. On kernels that expose it,
+`kernel.apparmor_restrict_unprivileged_unconfined` is set too; on older
+kernels the key is left out, because an unknown key makes `sysctl --system`
+fail. Core
 dumps are also disabled in limits and in systemd-coredump, because they can
 contain passwords and keys from memory.
 
@@ -163,7 +178,9 @@ contain passwords and keys from memory.
 ### 3.6 Bootloader (`tasks/bootloader.yml`)
 
 AppArmor is enforced on the kernel command line, and `grub.cfg` is readable by
-root only. A GRUB password is optional (`cis_grub_password_pbkdf2`). When set,
+root only. The GRUB password (`cis_grub_password_pbkdf2`) is CIS 1.4.1, a
+Level 1 control: without it the host is not compliant, and the run summary
+says so. When set,
 menu entries are marked `--unrestricted`: booting needs no password, only
 editing entries or opening the GRUB shell does. Without that, every unattended
 reboot of a VM would stop at a password prompt.
@@ -180,7 +197,9 @@ would come back on the next upgrade.
 
 Key-only authentication, no root login, no empty passwords, `MaxAuthTries 4`,
 `AllowGroups automation sshusers`, strict ciphers, MACs and key exchange,
-verbose logging and a login banner.
+verbose logging and a login banner. The 26.04 benchmark adds
+`umac-128-etm@openssh.com` to the weak MACs (CIS 5.1.17), so it is no longer
+in `cis_ssh_macs`.
 
 - **Drop-in named `00-`**: sshd keeps the *first* value it reads for each
   keyword, and `00-cis-hardening.conf` sorts before `50-cloud-init.conf`.
@@ -209,7 +228,9 @@ verbose logging and a login banner.
 session ends) and a 15-minute credential timeout. Ubuntu 26.04 ships
 **sudo-rs**, which does not support `Defaults logfile` or I/O logging. The
 role detects it and leaves `logfile` out; sudo-rs logs every command to the
-journal, which is persistent (see Logging). The classic sudo stays installed
+journal, which is persistent (see Logging). CIS 5.2.3 in the 26.04 benchmark
+accepts journald logging for sudo-rs ("Method A"), so this is compliant, not
+an exception. The classic sudo stays installed
 as `sudo.ws`. `playbooks/bootstrap.yml` uses it, because Ansible 2.16 does not
 recognise sudo-rs's password prompt.
 
@@ -228,6 +249,12 @@ re-authentication for everyone.
   the supported mechanism on Ubuntu. Hand-edited `/etc/pam.d` files are
   overwritten by package upgrades and are easy to break. Test on a console
   before the first rollout.
+- `nullok` is removed from the `pam_unix` profile (CIS 5.3.3.4.1), so an
+  account with an empty password can never log in. An upgrade of
+  `libpam-runtime` can bring it back; the next run removes it again.
+- `su` is limited to the members of an empty group (`cis_su_group`, CIS 5.2.7)
+  through `pam_wheel`. Administrators use `sudo`; Ansible's `become` uses
+  `sudo` too, so it is not affected.
 - Interactive shells get `TMOUT=900` and `umask 027`. `TMOUT` only applies to a
   shell waiting at a prompt. Non-interactive SSH commands, which is how
   Ansible, Terraform and Packer work, are never affected.
@@ -236,8 +263,12 @@ re-authentication for everyone.
 
 journald is persistent and compressed, so logs (including sudo-rs) survive
 reboots. Login banners state that use is monitored and say nothing about the
-OS or its version. cron and at are limited to root with allow-lists, and cron
-directories are root-only. AppArmor must be running.
+OS or its version. The dynamic MOTD scripts in `/etc/update-motd.d` lose their
+exec bit and `update-notifier-motd` is masked (`cis_disable_dynamic_motd`,
+CIS 1.6.4/1.6.11/1.6.12), because `00-header` prints "Welcome to Ubuntu
+<version>" at every login. cron and at are limited to root with allow-lists,
+and cron directories (including `cron.yearly`) are root-only. AppArmor must
+be running.
 
 ### 3.12 File integrity (`tasks/aide.yml`)
 
@@ -292,8 +323,10 @@ For image builds the connecting user is the builder's (for example `packer`),
 not `svc_ansible`: add it to `cis_ssh_allow_groups` for the build and remove it
 when sealing. Partition layout (separate `/var`, `/var/log`,
 `/var/log/audit`, `/var/tmp`, `/home`) is decided by the OS installer
-(autoinstall), not by this role. It was Level 2 in 22.04/24.04 and cannot be
-changed cheaply after deployment.
+(autoinstall), not by this role. Separate partitions are Level 2 (also in
+26.04) and cannot be changed cheaply after deployment. When they exist, their
+`nodev`/`nosuid`/`noexec` options (CIS 1.1.2.3-1.1.2.7, Level 1) must be set
+by the installer: the role does not manage them yet.
 
 ---
 
@@ -302,22 +335,42 @@ changed cheaply after deployment.
 Deviations from the benchmark, each controlled by a variable. Keep this table
 up to date before go-live.
 
-| Control (24.04 wording) | Deviation | Scope | Justification | Compensating control |
-|---|---|---|---|---|
-| sshd DisableForwarding | `no` | `bastions` group | ProxyJump for automation | SSH only from management networks |
-| ufw default deny outgoing | allow-list | all | Only required egress | Rules reviewed per release |
-| sudo log file | journald instead of `logfile` | all (sudo-rs) | Not supported by sudo-rs | Persistent journald |
-| squashfs disabled | not disabled | hosts with snaps | snapd dependency | Snap confinement / AppArmor |
-| ip_forward = 0 | `1` | Kubernetes nodes | CNI routing | NetworkPolicy, node firewall |
-| Privilege escalation re-authentication | `NOPASSWD` for group `automation` | automation account | Unattended runs | Key-only account, SSH from management networks only |
+| Control (26.04 v1.0.0) | Level | Deviation | Scope | Justification | Compensating control |
+|---|---|---|---|---|---|
+| 5.1.9 sshd DisableForwarding | L1 | `no` | `bastions` group | ProxyJump for automation | SSH only from management networks |
+| 3.3.1.x / 3.3.2.x forwarding, route_localnet | L1 | not set | `cis_is_router: true` hosts (Kubernetes, containers) | CNI routing | NetworkPolicy, node firewall |
+| 1.4.1 bootloader password | L1 | not set while `cis_grub_password_pbkdf2` is empty | hosts without a hash | Hash not provisioned yet | Console access restricted at the hypervisor |
+| 4.1.4 ufw default deny outgoing | L2 | the role applies it anyway; `allow` is allowed | all | Only required egress | Rules reviewed per release |
+| 1.1.1.7 squashfs disabled | L2 | not disabled | hosts with snaps | snapd dependency | Snap confinement / AppArmor |
+| 5.2.4 password for privilege escalation | L2 | `NOPASSWD` for group `automation` | automation account | Unattended runs | Key-only account, SSH from management networks only |
+
+Level 2 rows are listed for completeness: they do not affect Level 1
+compliance. The sudo-rs journald row was removed: CIS 5.2.3 (26.04) accepts it.
+
+### 5.1 Level 1 controls not automated
+
+These Level 1 controls are not changed by the role. Most of them pass on a
+default Ubuntu Server install; the audit tool shows which ones need work.
+
+| Control | Why not automated |
+|---|---|
+| 1.1.2.3-1.1.2.7 options on separate `/home`, `/var`, `/var/tmp`, `/var/log`, `/var/log/audit` | Partitions come from the installer; set the options there |
+| 1.2.2.1 updates installed | Manual; patching is a separate process |
+| 2.1.x / 2.2.x services and clients not in use | Only the packages in `cis_remove_packages` are removed; the rest are not installed on Ubuntu Server by default |
+| 5.2.5 re-authentication not disabled globally | Reported, not changed: removing `!authenticate` from someone's sudoers needs a human decision |
+| 5.3.1.x latest PAM packages | Patching process |
+| 6.1.2.x rsyslog | The role uses journald; the benchmark asks for one of the two |
+| 6.1.3.1 access to log files | Not implemented yet |
+| 7.1.11-7.1.13, 7.2.x file and account reviews | Audit checks; fix the findings case by case |
+| Manual controls (1.1.1.11, 2.1.23, 3.1.1, 3.2.7, 6.1.1.1.4/5, ...) | Need a human decision |
 
 ---
 
 ## 6. Verification
 
-- **Smoke test** (`files/cis-l1-smoke.sh`, run by `playbooks/smoke.yml`): 37
+- **Smoke test** (`files/cis-l1-smoke.sh`, run by `playbooks/smoke.yml`): 51
   quick checks of the effective state (`findmnt`, `sshd -T`, `ufw status`,
-  `sysctl`, services, automation account). It confirms the role did what it
+  `sysctl`, PAM, services, automation account). It confirms the role did what it
   should, but it is **not** a compliance audit.
 - **Compliance audit**: use a tool that did not write the configuration:
   - **Ubuntu Security Guide** (`usg audit`, needs Ubuntu Pro)

@@ -11,6 +11,37 @@
     content: "{{ cis_banner_text }}"
   loop: [/etc/issue, /etc/issue.net, /etc/motd]
 
+# CIS 1.6.4: pam_motd also shows /run/motd.dynamic, rebuilt at each login by
+# /etc/update-motd.d/* (00-header prints the OS name and version). Scripts
+# without the exec bit are skipped by run-parts. Package upgrades may restore
+# the bit; the next run of the role removes it again.
+- name: Misc | Find dynamic MOTD scripts
+  ansible.builtin.find:
+    paths: /etc/update-motd.d
+    file_type: file
+  register: _cis_motd_scripts
+  when: cis_disable_dynamic_motd | bool
+
+- name: Misc | Dynamic MOTD scripts not executable
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "0644"
+  loop: "{{ _cis_motd_scripts.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: cis_disable_dynamic_motd | bool
+
+# CIS 1.6.11 / 1.6.12. Masking also works when the unit is not installed.
+- name: Misc | update-notifier-motd service and timer masked
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    masked: true
+    state: stopped
+  loop: [update-notifier-motd.service, update-notifier-motd.timer]
+  when: cis_disable_dynamic_motd | bool
+  failed_when: false
+
 # ---------------- cron / at ----------------------------------------------------
 - name: Misc | cron files root-only
   ansible.builtin.file:
@@ -24,6 +55,7 @@
     - { path: /etc/cron.daily, mode: "0700" }
     - { path: /etc/cron.weekly, mode: "0700" }
     - { path: /etc/cron.monthly, mode: "0700" }
+    - { path: /etc/cron.yearly, mode: "0700" }
     - { path: /etc/cron.d, mode: "0700" }
   loop_control:
     label: "{{ item.path }}"

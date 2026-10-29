@@ -2,6 +2,18 @@
 # Kernel and network parameters (templates/60-cis.conf.j2) and core dumps.
 # ufw re-applies its own /etc/ufw/sysctl.conf on start, which would undo
 # values here, so ufw is pointed at the CIS file instead.
+# CIS 1.3.1.4: the AppArmor key only exists on kernels with AppArmor 4
+# (24.04+). Writing an unknown key makes `sysctl --system` fail, so it is
+# only templated when the kernel exposes it.
+- name: Sysctl | Does the kernel expose apparmor_restrict_unprivileged_unconfined
+  ansible.builtin.stat:
+    path: /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined
+  register: _cis_aa_unconfined
+
+- name: Sysctl | Remember it for the template
+  ansible.builtin.set_fact:
+    _cis_has_apparmor_unconfined: "{{ _cis_aa_unconfined.stat.exists }}"
+
 - name: Sysctl | CIS parameters
   ansible.builtin.template:
     src: 60-cis.conf.j2

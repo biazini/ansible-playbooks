@@ -1,5 +1,6 @@
 ---
-# Filesystem and USB storage kernel modules (CIS "ensure X is not available").
+# Filesystem, USB storage, FireWire and network protocol kernel modules
+# (CIS 1.1.1.x and 3.2.x "ensure X is not available").
 # Each module gets "install X /bin/false" + "blacklist X" in /etc/modprobe.d
 # and is unloaded if loaded. Modules that platforms rely on (iso9660 for
 # vSphere/cloud-init media, overlay for containers) are refused on purpose.
@@ -9,7 +10,9 @@
       {{ cis_disabled_fs_modules
          + (['squashfs'] if cis_disable_squashfs else [])
          + (['udf'] if cis_disable_udf else [])
-         + (['usb-storage'] if cis_disable_usb_storage else []) }}
+         + (['usb-storage'] if cis_disable_usb_storage else [])
+         + (['firewire-core'] if cis_disable_firewire else [])
+         + cis_disabled_net_modules }}
 
 - name: Modules | Guard against disabling what VMware / snapd depend on
   ansible.builtin.assert:
@@ -52,4 +55,6 @@
   ansible.builtin.file:
     path: "/etc/modprobe.d/cis-{{ item }}.conf"
     state: absent
-  loop: "{{ ['squashfs', 'udf', 'usb-storage'] | difference(_cis_modules_off) }}"
+  loop: >-
+    {{ ['squashfs', 'udf', 'usb-storage', 'firewire-core',
+        'atm', 'can', 'dccp', 'rds', 'sctp', 'tipc'] | difference(_cis_modules_off) }}

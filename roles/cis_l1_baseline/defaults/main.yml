@@ -3,8 +3,8 @@
 # cis_l1_baseline - CIS Ubuntu Linux 26.04 LTS, Level 1 Server, automation-safe
 #
 # Every deviation from the benchmark is a variable here and is listed in the
-# README "Exceptions register". Rule numbers are deliberately NOT hard-coded:
-# reconcile them against the 26.04 v1.0.0 PDF before claiming compliance.
+# README "Exceptions register". Control numbers in comments refer to the
+# CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0.
 # =============================================================================
 
 # --- Run control -------------------------------------------------------------
@@ -19,8 +19,8 @@ cis_automation_pubkeys: []
 # Key-only account. "*" = no usable password hash, so PAM password-aging and
 # faillock rules never apply to it and it can never be "expired" mid-pipeline.
 cis_automation_password: "*"
-# CIS "users must provide password for privilege escalation" is Level 2 in the
-# 22.04/24.04 benchmarks, so NOPASSWD for the automation group is L1-compatible.
+# CIS 5.2.4 "users must provide password for privilege escalation" is Level 2
+# (22.04/24.04/26.04), so NOPASSWD for the automation group is L1-compatible.
 cis_automation_nopasswd: true
 
 # --- SSH ---------------------------------------------------------------------
@@ -42,10 +42,10 @@ cis_ssh_ciphers:
   - aes256-ctr
   - aes192-ctr
   - aes128-ctr
+# CIS 5.1.17 (26.04) lists umac-128-etm@openssh.com as weak: do not add it back.
 cis_ssh_macs:
   - hmac-sha2-512-etm@openssh.com
   - hmac-sha2-256-etm@openssh.com
-  - umac-128-etm@openssh.com
   - hmac-sha2-512
   - hmac-sha2-256
 # Post-quantum first (OpenSSH 10.x default), classic curves kept for older
@@ -82,11 +82,16 @@ cis_ufw_rollback_minutes: 5        # firewall auto-disables unless Ansible recon
 
 # --- Filesystems / kernel modules --------------------------------------------
 cis_disabled_fs_modules: [cramfs, freevxfs, hfs, hfsplus, jffs2]
-# Level 2 in the 22.04/24.04 benchmarks. squashfs = snapd (LXD, livepatch,
-# several vendor agents). Leave off unless you know the host has no snaps.
+# CIS 1.1.1.7 / 1.1.1.8, Level 2 (22.04/24.04/26.04). squashfs = snapd (LXD,
+# livepatch, several vendor agents). Leave off unless the host has no snaps.
 cis_disable_squashfs: false
 cis_disable_udf: false
-cis_disable_usb_storage: true
+cis_disable_usb_storage: true      # CIS 1.1.1.10
+cis_disable_firewire: true         # CIS 1.1.1.9 (firewire-core)
+# CIS 3.2.1-3.2.6: uncommon network protocols. Remove a name from the list
+# when an application really needs it (e.g. sctp for telecom/Diameter stacks)
+# and record it in the README exceptions register.
+cis_disabled_net_modules: [atm, can, dccp, rds, sctp, tipc]
 # Never add iso9660: vSphere guest customisation / OVF ISO transport uses it.
 
 # --- Mounts ------------------------------------------------------------------
@@ -119,8 +124,22 @@ cis_ntp_servers: []                # empty = keep Ubuntu NTS pools
 # fs.suid_dumpable=2 at start, which breaks the CIS sysctl.
 cis_disable_apport: true
 
+# --- APT ---------------------------------------------------------------------
+# CIS 1.2.1.10 / 1.2.1.11: repositories over https. The role rewrites http://
+# URIs to https://, runs `apt-get update` and puts the files back if that
+# fails (for example an internal mirror without TLS). Set false only for a
+# mirror that cannot serve https, and register the exception.
+cis_apt_https: true
+
 # --- PAM / accounts ----------------------------------------------------------
 cis_manage_pam: true               # test on console first; see README
+# CIS 5.3.3.4.1: Ubuntu's pam_unix profile ships "nullok" (empty passwords
+# accepted). Removed from /usr/share/pam-configs/unix when cis_manage_pam.
+cis_pam_remove_nullok: true
+# CIS 5.2.7: only members of this (empty) group may use su. Administrators
+# use sudo instead; Ansible uses sudo (become_method), never su.
+cis_restrict_su: true
+cis_su_group: sugroup
 cis_faillock_deny: 5
 cis_faillock_unlock_time: 900
 # pwhistory remember=24 lives in files/pam-configs/pwhistory
@@ -139,7 +158,8 @@ cis_inactive_days: 45
 
 # --- Bootloader --------------------------------------------------------------
 cis_grub_apparmor: true
-# PBKDF2 hash from `grub-mkpasswd-pbkdf2` (keep it in Vault). Empty = skip.
+# PBKDF2 hash from `grub-mkpasswd-pbkdf2` (keep it in Vault). CIS 1.4.1 is
+# Level 1: empty = skipped, the host is NOT compliant and the summary warns.
 # Entries are marked --unrestricted so unattended reboots never stop at a
 # password prompt; only editing entries / the GRUB shell needs the password.
 cis_grub_superuser: grubadmin
@@ -153,6 +173,11 @@ cis_journald_storage: persistent
 # --- Banners -----------------------------------------------------------------
 cis_banner_text: |
   Authorized uses only. All activity may be monitored and reported.
+# CIS 1.6.4 / 1.6.11 / 1.6.12: the dynamic MOTD (/run/motd.dynamic) is built at
+# each login by /etc/update-motd.d/* (00-header prints "Welcome to Ubuntu ...").
+# true = those scripts lose their exec bit and update-notifier-motd is masked,
+# so only cis_banner_text is shown.
+cis_disable_dynamic_motd: true
 
 # --- VMware / cloud-init -----------------------------------------------------
 cis_vmware_manage_cloudinit: false

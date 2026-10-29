@@ -23,7 +23,8 @@ for m in /tmp /dev/shm; do
 done
 
 echo "== Kernel modules"
-for mod in cramfs freevxfs hfs hfsplus jffs2 usb-storage; do
+for mod in cramfs freevxfs hfs hfsplus jffs2 usb-storage firewire-core \
+           atm can dccp rds sctp tipc; do
   chk "$mod not loadable" "modprobe -n -v $mod | grep -Eq 'install /(usr/)?bin/(true|false)'"
 done
 chk "iso9660 still loadable (vSphere customisation)" "! grep -rqs 'install iso9660' /etc/modprobe.d"
@@ -38,6 +39,9 @@ exp clientaliveinterval 15
 exp clientalivecountmax 3
 exp permitemptypasswords no
 grep -qi '^allowgroups ' <<<"$T" && ok "AllowGroups set" || ko "AllowGroups set"
+# CIS 5.1.17 weak MAC list (26.04 adds umac-128-etm)
+grep -Piq '^macs\h+([^#]+,)?(hmac-md5|hmac-ripemd160|hmac-sha1-96|umac-64|umac-128-etm)' <<<"$T" \
+  && ko "no weak MACs" || ok "no weak MACs"
 
 echo "== Firewall"
 chk "ufw active" "ufw status | grep -q '^Status: active'"
@@ -47,7 +51,8 @@ chk "no rollback timer left armed" "! systemctl is-active --quiet cis-ufw-rollba
 
 echo "== Sysctl"
 for kv in kernel.randomize_va_space=2 net.ipv4.conf.all.accept_redirects=0 \
-          net.ipv4.conf.all.log_martians=1 net.ipv4.tcp_syncookies=1 fs.suid_dumpable=0; do
+          net.ipv4.conf.all.log_martians=1 net.ipv4.tcp_syncookies=1 fs.suid_dumpable=0 \
+          kernel.dmesg_restrict=1 fs.protected_hardlinks=1; do
   k=${kv%%=*}; v=${kv#*=}
   [[ "$(sysctl -n "$k" 2>/dev/null)" == "$v" ]] && ok "$k=$v" || ko "$k=$v (got $(sysctl -n "$k" 2>/dev/null))"
 done
@@ -58,6 +63,12 @@ chk "AppArmor enabled" "aa-enabled -q"
 chk "APT template dir off /tmp" "apt-config dump | grep -q 'ExtractTemplates::TempDir \"/var/cache/apt/tmp\"'"
 chk "grub.cfg 0600" "[[ \$(stat -c %a /boot/grub/grub.cfg) == 600 ]]"
 chk "AIDE installed" "dpkg -s aide"
+chk "APT Check-Date explicit" "apt-config dump | grep -q 'Acquire::Check-Date \"true\"'"
+chk "cron.yearly 0700" "[[ \$(stat -c %a /etc/cron.yearly) == 700 ]]"
+
+echo "== PAM"
+chk "pam_unix without nullok" "! grep -Pqs '^\h*[^#]+\h+pam_unix\.so\h+([^#]+\h+)?nullok\b' /etc/pam.d/common-{auth,password,account,session}"
+chk "su restricted by pam_wheel" "grep -Pq '^\h*auth\h+required\h+pam_wheel\.so\h+.*group=' /etc/pam.d/su"
 
 echo "== Automation path"
 u=${CIS_AUTOMATION_USER:-svc_ansible}

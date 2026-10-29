@@ -4,14 +4,24 @@
 # --- Process / kernel ---
 kernel.randomize_va_space = 2
 kernel.yama.ptrace_scope = 1
+kernel.dmesg_restrict = 1
+kernel.kptr_restrict = 1
 fs.suid_dumpable = 0
+fs.protected_hardlinks = 1
+{% if _cis_has_apparmor_unconfined | default(false) | bool %}
+kernel.apparmor_restrict_unprivileged_unconfined = 1
+{% endif %}
 
 # --- Host only (not a router) ---
 {% if not cis_is_router %}
 net.ipv4.ip_forward = 0
+net.ipv4.conf.all.forwarding = 0
+net.ipv4.conf.default.forwarding = 0
 net.ipv6.conf.all.forwarding = 0
+net.ipv6.conf.default.forwarding = 0
 net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.route_localnet = 0
 {% else %}
 # cis_is_router=true: forwarding left to the platform (k8s / containers). Documented exception.
 {% endif %}

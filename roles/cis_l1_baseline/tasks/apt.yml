@@ -19,3 +19,116 @@
     content: |
       // Managed by Ansible (cis_l1_baseline) - /tmp is mounted noexec
       APT::ExtractTemplates::TempDir "/var/cache/apt/tmp";
+
+# CIS 1.2.1.12 - 1.2.1.15: refuse unsigned, weakly signed or downgraded
+# repositories and check Release file dates (explicit, not just defaults).
+- name: APT | Repository security options
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99-cis-no-insecure-repositories
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Managed by Ansible (cis_l1_baseline) - CIS 1.2.1.12-1.2.1.15
+      Acquire::AllowInsecureRepositories "0";
+      Acquire::AllowWeakRepositories "0";
+      Acquire::AllowDowngradeToInsecureRepositories "0";
+      Acquire::Check-Date "true";
+
+# CIS 1.2.1.4 / 1.2.1.5 / 1.2.1.7 / 1.2.1.8: root-owned, 0755 or stricter.
+- name: APT | Directory permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/apt/trusted.gpg.d
+    - /etc/apt/auth.conf.d
+    - /usr/share/keyrings
+    - /etc/apt/sources.list.d
+
+- name: APT | Find source and auth files
+  ansible.builtin.find:
+    paths: [/etc/apt/sources.list.d, /etc/apt/auth.conf.d]
+    file_type: file
+  register: _cis_apt_files
+
+# CIS 1.2.1.6 / 1.2.1.9: files 0644 (sources) and 0600 (credentials) or stricter.
+- name: APT | Source and auth file permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ '0600' if item.path.startswith('/etc/apt/auth.conf.d') else 'u-x,go-wx' }}"
+  loop: "{{ _cis_apt_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# CIS 1.2.1.10 / 1.2.1.11: repositories over https. If `apt-get update` fails
+# afterwards (a mirror without TLS, a proxy that only allows port 80), the
+# previous files are restored and the run continues with a warning.
+- name: APT | Repositories over https
+  when: cis_apt_https | bool
+  block:
+    - name: APT | Find repository definitions
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns: ["*.list", "*.sources"]
+      register: _cis_apt_sources
+
+    - name: APT | Legacy sources.list present
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list
+      register: _cis_apt_legacy
+
+    - name: APT | Rewrite http:// to https://
+      ansible.builtin.replace:
+        path: "{{ item }}"
+        regexp: '\bhttp://'
+        replace: 'https://'
+        backup: true
+      loop: >-
+        {{ (_cis_apt_sources.files | map(attribute='path') | list)
+           + (['/etc/apt/sources.list'] if _cis_apt_legacy.stat.exists else []) }}
+      register: _cis_apt_https
+
+    - name: APT | Repositories still reachable over https
+      ansible.builtin.command: apt-get update -o Acquire::Retries=1
+      when: _cis_apt_https is changed
+      changed_when: false
+
+    # Backups end in "~", which APT ignores silently; remove them anyway.
+    - name: APT | Remove the backups after a successful update
+      ansible.builtin.file:
+        path: "{{ item.backup_file }}"
+        state: absent
+      loop: "{{ _cis_apt_https.results | selectattr('backup_file', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.backup_file }}"
+  rescue:
+    - name: APT | Restore the previous repository files
+      ansible.builtin.copy:
+        src: "{{ item.backup_file }}"
+        dest: "{{ item.item }}"
+        remote_src: true
+        mode: preserve
+      loop: "{{ _cis_apt_https.results | default([]) | selectattr('backup_file', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: APT | Remove the backups after restoring
+      ansible.builtin.file:
+        path: "{{ item.backup_file }}"
+        state: absent
+      loop: "{{ _cis_apt_https.results | default([]) | selectattr('backup_file', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.backup_file }}"
+
+    - name: APT | Warn that https is not compliant yet
+      ansible.builtin.debug:
+        msg: >-
+          apt-get update failed over https, previous repository files restored.
+          CIS 1.2.1.10/1.2.1.11 are NOT met: use a mirror that serves https, or set
+          cis_apt_https=false and register the exception.

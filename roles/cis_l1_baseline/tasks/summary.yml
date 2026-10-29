@@ -12,3 +12,10 @@
   when:
     - cis_reboot_required | default(false)
     - not cis_allow_reboot
+
+- name: Summary | Bootloader password missing
+  ansible.builtin.debug:
+    msg: >-
+      cis_grub_password_pbkdf2 is empty: CIS 1.4.1 (bootloader password, Level 1) is NOT
+      met on this host. Generate a hash with grub-mkpasswd-pbkdf2 and keep it in Vault.
+  when: cis_grub_password_pbkdf2 | length == 0
