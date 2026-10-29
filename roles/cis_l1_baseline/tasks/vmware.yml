@@ -2,12 +2,35 @@
 # vSphere hands metadata to cloud-init through VMware Tools (guestinfo, via
 # vmtoolsd / vmware-rpctool) or an attached OVF ISO (iso9660). Neither uses the
 # IP network, so the host firewall does not affect them. What matters here is
-# that open-vm-tools is running and cloud-init looks at the right datasources.
+# that open-vm-tools is running, that it does not fight chrony over the clock,
+# and that cloud-init looks at the right datasources.
+- name: VMware | open-vm-tools installed
+  ansible.builtin.apt:
+    name: open-vm-tools
+    state: present
+
 - name: VMware | open-vm-tools running
   ansible.builtin.systemd_service:
     name: open-vm-tools.service
     enabled: true
     state: started
+
+# CIS 2.3.1.1: one time daemon. VMware Tools periodic sync would step the
+# clock behind chrony's back.
+- name: VMware | Tools periodic time sync status
+  ansible.builtin.command: vmware-toolbox-cmd timesync status
+  register: _cis_vmw_timesync
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: cis_vmware_disable_tools_timesync | bool
+
+- name: VMware | Tools periodic time sync disabled
+  ansible.builtin.command: vmware-toolbox-cmd timesync disable
+  when:
+    - cis_vmware_disable_tools_timesync | bool
+    - _cis_vmw_timesync.stdout | default('') | trim | lower == 'enabled'
+  changed_when: true
 
 - name: VMware | cloud-init datasources and guest customisation
   ansible.builtin.copy:
@@ -21,3 +44,4 @@
       disable_vmware_customization: false
       # Never let cloud-init turn password SSH back on
       ssh_pwauth: false
+  when: cis_vmware_manage_cloudinit | bool

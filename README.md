@@ -45,8 +45,9 @@ Playbooks, roles and inventories that manage the Linux estate, executed from the
 ├── extensions/
 │   └── eda/rulebooks/            Event-Driven Ansible rulebook (selfheal.yml)
 ├── inventories/
-│   └── lab/                      hosts.yml + group_vars/ (one folder per environment);
-│                                 ops.yml = self-healing ops node, local runs only
+│   ├── lab/                      hosts.yml + group_vars/ (one folder per environment);
+│   │                             ops.yml = self-healing ops node, local runs only
+│   └── vmware-example/           template for VMware vSphere clones managed as user `ansible`
 ├── playbooks/                    Entry points, one per job template
 └── roles/
     ├── cis_l1_baseline/          CIS Level 1 role, documented in its own README
@@ -92,7 +93,7 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 - **Source control** — public GitHub repository `biazini/ansible-playbooks`, branch `main`. Ascender reads it with a fine-grained token that can only read this repository.
 - **Control plane** — Ascender 25.6.2, organization **Linux Infrastructure**: project, inventory, credentials, job templates and team.
 - **Execution** — every job runs in a pod from `ascender-ee:25.6.2` (ansible-runner, ansible-core 2.16, the collections and `netaddr`). The machine credential is loaded into an ssh-agent for the duration of the job only.
-- **Managed hosts** — Ubuntu servers in inventory group `ubuntu_cis_l1`, administered through the key-only account `svc_ansible`.
+- **Managed hosts** — Ubuntu servers in inventory group `ubuntu_cis_l1`, administered through the key-only account `ansible` (`cis_automation_user`; the lab inventory overrides it with `svc_ansible`).
 
 ### 1.4 Component inventory
 
@@ -137,7 +138,7 @@ Figure 1 is the logical view: engineers change content in Git, Ascender turns th
 | Thin playbooks, logic in roles | A role is written and documented once and reused by several playbooks and job templates. |
 | Inventory and variables in Git, loaded as an inventory source | Hosts and their settings are versioned with the code that uses them; `group_vars/` travel with `hosts.yml`. |
 | Collections pinned in `collections/requirements.yml` | Jobs do not depend on what happens to be installed in the Execution Environment image. |
-| Dedicated key-only automation account (`svc_ansible`) | No password to expire, leak or be locked out by PAM; access is revoked by removing one key. |
+| Dedicated key-only automation account (`ansible`) | No password to expire, leak or be locked out by PAM; access is revoked by removing one key. |
 | Passwords asked at launch for bootstrap | The only password-based job never stores the password in Ascender. |
 | Check mode before every first apply | The dry run shows every change as a diff before anything is touched. |
 | Hardening built for automation | The CIS role never removes the access it relies on: preflight checks, validated SSH changes and a firewall that rolls itself back (see the [role README](roles/cis_l1_baseline/README.md)). |
@@ -161,7 +162,7 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 
 | Playbook | Hosts | Job template | What it does |
 |---|---|---|---|
-| `playbooks/bootstrap.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu VM - Bootstrap automation user | Once per host: creates `svc_ansible` (key, group, NOPASSWD sudo) as an existing sudo user. |
+| `playbooks/bootstrap.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu VM - Bootstrap automation user | Once per host: creates `ansible` (key, group, NOPASSWD sudo) as an existing sudo user. |
 | `playbooks/ping.yml` | all | Ubuntu VM - Ping | SSH login, privilege escalation, OS and kernel report. Read-only. |
 | `playbooks/base.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu Base - Apply | Applies role `ubuntu_base` (console keyboard layout, clean initramfs); job type Check or Run at launch. |
 | `playbooks/site.yml` | `ubuntu_cis_l1`, `bastions` | Ubuntu CIS L1 - Check (dry run) / Apply | Applies role `cis_l1_baseline`; the Check template runs it in check mode with diff. |
@@ -199,7 +200,7 @@ Provide versioned, reviewable automation content for the Linux estate and a docu
 |---|---|
 | Ubuntu 26.04 or 24.04 LTS, `python3` | Supported releases of the CIS role; Ansible modules run with the host's Python. |
 | `openssh-server` installed and running | Ubuntu Desktop images do not include it; Ascender connects over SSH. |
-| A sudo-capable user and its password (first run only) | Used once by the bootstrap job to create `svc_ansible`. |
+| A sudo-capable user and its password (first run only) | Used once by the bootstrap job to create `ansible` (on VMware clones: the template admin user). |
 | Network path from the Execution Environment to port 22 | The source address must be listed in `cis_mgmt_cidrs` before the CIS firewall is applied. |
 | Console access (hypervisor or iLO/iDRAC) | Recovery path during the first hardening run. |
 
@@ -293,7 +294,7 @@ Launch **Ubuntu VM - Bootstrap automation user** with **Limit** `<HOST>`. Enter 
 
 Launch **Ubuntu VM - Ping**, then **Ubuntu Base - Apply**.
 
-✅ **Expected result** — `SSH login as svc_ansible, become -> root` and `failed=0` for both; the base job rebuilds the initramfs (effective at the reboot in Phase 7).
+✅ **Expected result** — `SSH login as ansible, become -> root` (`svc_ansible` in the lab) and `failed=0` for both; the base job rebuilds the initramfs (effective at the reboot in Phase 7).
 
 ### 5.5 Phase 5 — Dry run
 
@@ -311,7 +312,7 @@ Take a snapshot or backup of the host (powered off for VirtualBox, see [7.4](#74
 
 Reboot the host (applies the `/tmp` mount options), then launch **Ubuntu CIS L1 - Smoke test**.
 
-✅ **Expected result** — `Result: 51 passed, 0 failed`.
+✅ **Expected result** — `Result: 51 passed, 0 failed` (53 on VMware guests).
 
 ---
 
@@ -354,7 +355,7 @@ Add a schedule to **Ubuntu CIS L1 - Apply** (for example weekly). Package update
 | Credential | When | How |
 |---|---|---|
 | GitHub token | Before it expires, or when exposed | Regenerate it in GitHub (fine-grained, contents read-only, this repository) and paste it in **Password** of `GitHub - ansible-playbooks`. |
-| `svc_ansible` SSH key | Periodically, or when exposed | Generate a new key, add the public key to `cis_automation_pubkeys`, run **Apply**, replace the private key in the machine credential, remove the old public key and run **Apply** again. |
+| Automation account (`ansible`) SSH key | Periodically, or when exposed | Generate a new key, add the public key to `cis_automation_pubkeys`, run **Apply**, replace the private key in the machine credential, remove the old public key and run **Apply** again. |
 | `svc_eda` API token (self-healing) | Periodically, or when exposed | Run `playbooks/selfheal_ops.yml --tags controller -e selfheal_rotate_token=true` ([8.4](#84-deployment-procedure)): every token of the account is revoked, a new one is written and `eda-selfheal` restarts. |
 
 ### 7.3 Job logs
@@ -531,6 +532,7 @@ All launched from **Self-Heal - Chaos test** (survey) on the lab VM, 20 Oct 2026
 | [`inventories/lab/hosts.yml`](inventories/lab/hosts.yml) | Lab hosts and groups, with the network path explained. |
 | [`inventories/lab/group_vars/all.yml`](inventories/lab/group_vars/all.yml) | Automation account key, management networks, egress allow-list, keyboard layout. |
 | [`inventories/lab/group_vars/bastions.yml`](inventories/lab/group_vars/bastions.yml) | Jump-host exception (SSH forwarding). |
+| [`inventories/vmware-example/`](inventories/vmware-example/) | Template inventory for Ubuntu VMs on VMware vSphere (user `ansible`, cloud-init customisation); placeholders fail the run until replaced. |
 | [`playbooks/`](playbooks/) | Entry points; each file starts with what, when and why. |
 | [`roles/cis_l1_baseline/`](roles/cis_l1_baseline/) | CIS role, its README and task-flow diagram. |
 | [`roles/ubuntu_base/`](roles/ubuntu_base/) | General Ubuntu settings, its README and task-flow diagram. |

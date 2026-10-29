@@ -1,0 +1,5 @@
+---
+# Variables for the "bastions" group (jump hosts).
+# ProxyJump and agent forwarding need SSH forwarding, so this is a documented
+# exception to the CIS control "Ensure sshd DisableForwarding is enabled".
+cis_ssh_disable_forwarding: false

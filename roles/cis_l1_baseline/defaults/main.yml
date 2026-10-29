@@ -13,7 +13,10 @@ cis_allow_reboot: false            # reboot automatically when /tmp mount change
 cis_template_build: false          # true when run by Packer for a golden image
 
 # --- Automation account ------------------------------------------------------
-cis_automation_user: svc_ansible
+# Created by playbooks/bootstrap.yml (which connects once as the template's
+# sudo user) and used by every later run. Must match the SSH user of the
+# machine credential / ansible.cfg remote_user.
+cis_automation_user: ansible
 cis_automation_group: automation
 cis_automation_pubkeys: []
 # Key-only account. "*" = no usable password hash, so PAM password-aging and
@@ -95,7 +98,11 @@ cis_disabled_net_modules: [atm, can, dccp, rds, sctp, tipc]
 # Never add iso9660: vSphere guest customisation / OVF ISO transport uses it.
 
 # --- Mounts ------------------------------------------------------------------
-cis_manage_tmp_mount: true
+# Not applied while building a template (cis_template_build): a noexec /tmp
+# in the template can break VMware guest customisation of the clones at first
+# boot (traditional customisation works from a temporary directory). Each
+# clone gets the noexec /tmp on its own first run of the role.
+cis_manage_tmp_mount: "{{ not cis_template_build }}"
 cis_tmp_tmpfs_size: 2G
 cis_manage_dev_shm: true
 cis_tmp_mount_opts: [nodev, nosuid, noexec]
@@ -180,5 +187,14 @@ cis_banner_text: |
 cis_disable_dynamic_motd: true
 
 # --- VMware / cloud-init -----------------------------------------------------
+# Detected from the facts; set it explicitly only to override the detection.
+cis_vmware_guest: "{{ (ansible_facts['virtualization_type'] | default('')) | lower == 'vmware' }}"
+# CIS 2.3.1.1 (single time synchronisation daemon): chrony is the source of
+# time, so VMware Tools periodic time sync is disabled inside the guest. The
+# one-off syncs on vMotion/snapshot/resume are VM advanced settings
+# (time.synchronize.*) and must be turned off in vCenter.
+cis_vmware_disable_tools_timesync: true
+# Clones from a template with guest customisation: let cloud-init handle the
+# customisation through the VMware datasource and keep ssh_pwauth off.
 cis_vmware_manage_cloudinit: false
 cis_vmware_datasource_list: [VMware, OVF, None]

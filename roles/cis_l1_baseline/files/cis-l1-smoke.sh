@@ -70,8 +70,14 @@ echo "== PAM"
 chk "pam_unix without nullok" "! grep -Pqs '^\h*[^#]+\h+pam_unix\.so\h+([^#]+\h+)?nullok\b' /etc/pam.d/common-{auth,password,account,session}"
 chk "su restricted by pam_wheel" "grep -Pq '^\h*auth\h+required\h+pam_wheel\.so\h+.*group=' /etc/pam.d/su"
 
+if [[ "$(systemd-detect-virt 2>/dev/null)" == "vmware" ]]; then
+  echo "== VMware guest"
+  chk "open-vm-tools active" "systemctl is-active --quiet open-vm-tools"
+  chk "Tools periodic time sync disabled (chrony only)" "vmware-toolbox-cmd timesync status | grep -qi disabled"
+fi
+
 echo "== Automation path"
-u=${CIS_AUTOMATION_USER:-svc_ansible}
+u=${CIS_AUTOMATION_USER:-ansible}
 chk "$u has no password hash (key-only)" "[[ \$(getent shadow $u | cut -d: -f2) != \\\$* ]]"
 chk "$u never expires" "chage -l $u | grep -q 'Password expires.*never'"
 chk "$u home is not noexec" "! findmnt -n -o OPTIONS --target ~$u | grep -q noexec"

@@ -7,7 +7,7 @@ Applies the **CIS Ubuntu Linux 26.04 LTS Benchmark, Level 1 – Server** profile
 | **Target** | Ubuntu 26.04 LTS · Ubuntu 24.04 LTS |
 | **Benchmark** | CIS Ubuntu Linux 26.04 LTS v1.0.0 · Level 1 – Server |
 | **Requires** | ansible-core ≥ 2.16 · `community.general` · `ansible.posix` · `ansible.utils` · `netaddr` on the controller |
-| **Validated** | Ubuntu 26.04.1 LTS · smoke test 37/37 · second run `changed=0` (before the 26.04 v1.0.0 reconciliation; the 14 checks added with it still need a run on a host) |
+| **Validated** | Ubuntu 26.04.1 LTS · smoke test 37/37 · second run `changed=0` (before the 26.04 v1.0.0 reconciliation and the VMware changes; the checks added since still need a run on a host) |
 
 > [!IMPORTANT]
 > Control numbers in this README and in `defaults/main.yml` were reconciled against the CIS Ubuntu Linux 26.04 LTS Benchmark v1.0.0 PDF. Level 1 controls the role does not automate are listed in [5.1](#51-level-1-controls-not-automated). Audit with an independent tool before claiming compliance (see [6. Verification](#6-verification)).
@@ -40,8 +40,8 @@ Access-critical steps come first (preflight, automation account) and last (firew
 
 | Step | Playbook | Ascender job template | Notes |
 |---|---|---|---|
-| 1 | `playbooks/bootstrap.yml` | Ubuntu VM - Bootstrap automation user | Once per host. Runs only `tasks/automation_user.yml`, as an existing sudo user whose password is typed at launch |
-| 2 | `playbooks/ping.yml` | Ubuntu VM - Ping | Proves key login and sudo work as `svc_ansible` |
+| 1 | `playbooks/bootstrap.yml` | Ubuntu VM - Bootstrap automation user | Once per host. Runs only `tasks/automation_user.yml`, as an existing sudo user whose password is typed at launch (on VMware clones: the template's admin user) |
+| 2 | `playbooks/ping.yml` | Ubuntu VM - Ping | Proves key login and sudo work as `ansible` (`cis_automation_user`) |
 | 3 | `playbooks/site.yml` (check mode) | Ubuntu CIS L1 - Check (dry run) | Shows every change as a diff, changes nothing |
 | 4 | `playbooks/site.yml` | Ubuntu CIS L1 - Apply | First time: keep the VM console open |
 | 5 | reboot | - | Applies the new `/tmp` mount options |
@@ -79,8 +79,20 @@ connecting user will still pass `AllowGroups`. These are the four ways
 hardening locks out its own automation, so the role refuses to start rather
 than find out halfway.
 
-**Automation account** (`tasks/automation_user.yml`): `svc_ansible`, group
-`automation`.
+**Automation account** (`tasks/automation_user.yml`): `ansible`
+(`cis_automation_user`), group `automation`. The role creates it; it does not
+exist in the template. The user name must match `remote_user` in
+`ansible.cfg` and the SSH user of the machine credential.
+
+- **Bootstrap**: on a fresh clone the account does not exist yet, so
+  `playbooks/bootstrap.yml` connects once as the template's admin user (SSH
+  and sudo password typed at launch) and only creates `ansible`. It uses
+  `sudo.ws` when present (26.04, where sudo-rs is the default) and the normal
+  `sudo` on 24.04.
+- **The template's admin user** keeps its password and is subject to the CIS
+  password policy (aging, faillock). After hardening it can SSH in only if it
+  is in `sshusers` and has a key; otherwise it is the console account for
+  recovery through the VMware console.
 
 - **Password field is `*`** (no usable password). Password aging, expiry and
   faillock only act on accounts with a password, so this account can never
@@ -298,12 +310,40 @@ ufw with incoming **and** outgoing traffic denied by default:
 - The firewall runs **last**: if the timer ever has to fire, every other
   setting is already in place.
 
-### 3.14 VMware integration (`tasks/vmware.yml`, optional)
+### 3.14 VMware guests (`tasks/vmware.yml`)
 
-With `cis_vmware_manage_cloudinit: true`, open-vm-tools runs and cloud-init
-uses the VMware/OVF datasources, with `ssh_pwauth: false` so it cannot turn
-password SSH back on. vSphere passes metadata through VMware Tools or an
+Runs automatically when the facts report a VMware guest (`cis_vmware_guest`).
+vSphere passes metadata and guest customisation through VMware Tools or an
 attached ISO, not over the network, so the host firewall does not affect it.
+
+- **open-vm-tools** is installed and running.
+- **One time source** (CIS 2.3.1.1): chrony keeps the clock, so VMware Tools
+  periodic time sync is disabled in the guest
+  (`cis_vmware_disable_tools_timesync`). The one-off syncs on vMotion,
+  snapshot and resume are VM settings (`time.synchronize.*`) and must be set
+  in vCenter.
+- **Guest customisation with cloud-init**: with
+  `cis_vmware_manage_cloudinit: true`, cloud-init uses the VMware/OVF
+  datasources and handles the customisation, with `ssh_pwauth: false` so it
+  cannot turn password SSH back on.
+- **Modules VMware needs stay available**: `iso9660` (customisation ISO, OVF
+  transport) and the `vmw_vsock`/`vmw_vmci` modules are never in the disable
+  lists.
+- **`/tmp` is `noexec`**: anything that copies a script to `/tmp` and runs it
+  through VMware Tools fails, for example vSphere guest operations
+  (`Invoke-VMScript`, the `vmware_vm_shell` module). Give those tools another
+  working directory.
+
+**Template + clone workflow**
+
+1. Template: plain Ubuntu Server with open-vm-tools, cloud-init and an admin
+   user with a password. Do not run this role on the template, or run it with
+   `-e cis_template_build=true` (no `/tmp` hardening, no AIDE baseline) and
+   finish with `playbooks/seal-template.yml`, so every clone gets its own
+   SSH host keys and machine-id.
+2. Clone in vCenter with a guest customisation specification (hostname, IP).
+3. Add the clone to the inventory, then: bootstrap (template admin user) →
+   ping (as `ansible`) → site.yml check → site.yml apply → reboot → smoke.
 
 ---
 
@@ -317,10 +357,11 @@ attached ISO, not over the network, so the host firewall does not affect it.
 | Snaps (LXD, livepatch) | keep `cis_disable_squashfs: false` | Snaps are squashfs images |
 | AD-joined with Kerberos SSO | `cis_ssh_gssapi: true`, egress 88/389/636/464 to the DCs | GSSAPI login and directory lookups |
 | Multi-NIC with asymmetric routing | `cis_rp_filter: 2` | Strict reverse-path filtering drops valid replies |
-| Golden image build (Packer) | `-e cis_template_build=true`, then `playbooks/seal-template.yml` | No AIDE baseline in the image; host identity removed before templating |
+| VMware clone from a template | nothing (detected); `cis_vmware_manage_cloudinit: true` when cloud-init does the customisation | See 3.14 |
+| Golden image build (Packer) | `-e cis_template_build=true`, then `playbooks/seal-template.yml` | No `/tmp` hardening and no AIDE baseline in the image; host identity removed before templating |
 
 For image builds the connecting user is the builder's (for example `packer`),
-not `svc_ansible`: add it to `cis_ssh_allow_groups` for the build and remove it
+not `ansible`: add it to `cis_ssh_allow_groups` for the build and remove it
 when sealing. Partition layout (separate `/var`, `/var/log`,
 `/var/log/audit`, `/var/tmp`, `/home`) is decided by the OS installer
 (autoinstall), not by this role. Separate partitions are Level 2 (also in
@@ -369,8 +410,9 @@ default Ubuntu Server install; the audit tool shows which ones need work.
 ## 6. Verification
 
 - **Smoke test** (`files/cis-l1-smoke.sh`, run by `playbooks/smoke.yml`): 51
-  quick checks of the effective state (`findmnt`, `sshd -T`, `ufw status`,
-  `sysctl`, PAM, services, automation account). It confirms the role did what it
+  quick checks of the effective state, 53 on VMware guests (`findmnt`,
+  `sshd -T`, `ufw status`, `sysctl`, PAM, services, VMware Tools, automation
+  account). It confirms the role did what it
   should, but it is **not** a compliance audit.
 - **Compliance audit**: use a tool that did not write the configuration:
   - **Ubuntu Security Guide** (`usg audit`, needs Ubuntu Pro)

@@ -19,7 +19,7 @@
       ansible.builtin.script:
         cmd: "{{ playbook_dir }}/../roles/cis_l1_baseline/files/cis-l1-smoke.sh"
       environment:
-        CIS_AUTOMATION_USER: "{{ cis_automation_user | default('svc_ansible') }}"
+        CIS_AUTOMATION_USER: "{{ cis_automation_user | default('ansible') }}"
       register: _smoke
       changed_when: false
       failed_when: false   # always show the full report, fail afterwards

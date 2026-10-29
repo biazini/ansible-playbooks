@@ -5,22 +5,37 @@
 # What:  creates the key-only account every other playbook uses: user and
 #        group, authorized key (cis_automation_pubkeys), NOPASSWD sudo rule.
 #        Reuses the role's automation_user.yml, so there is one definition.
-# How:   connects as an existing sudo user with a password. In Ascender the
-#        "Ubuntu VM - bootstrap (gfilho)" credential asks for the SSH and sudo
-#        passwords at launch, so no password is stored anywhere.
-# After: switch to the "svc_ansible (SSH key)" credential for everything else.
+# How:   connects as an existing sudo user with a password: on VMware clones,
+#        the admin user baked into the template. In Ascender the bootstrap
+#        credential asks for the SSH and sudo passwords at launch, so no
+#        password is stored anywhere. Locally:
+#          ansible-playbook playbooks/bootstrap.yml -l <host> -u <template-admin> -k -K
+# After: switch to the key-only "ansible" credential (cis_automation_user) for
+#        everything else.
 # =============================================================================
 - name: Bootstrap the automation account
   hosts: ubuntu_cis_l1:bastions
   become: true
   gather_facts: false
-  vars:
+  pre_tasks:
     # Ubuntu 25.10+/26.04 default to sudo-rs, which does not honour the custom
     # prompt Ansible passes with "sudo -p" (ansible-core 2.16 in Ascender-EE):
     # the play times out "waiting for privilege escalation prompt". The classic
-    # sudo stays installed as sudo.ws, so use it for this password-based run.
-    # Later runs use svc_ansible with NOPASSWD, so no prompt and no workaround.
-    ansible_become_exe: sudo.ws
+    # sudo stays installed as sudo.ws there, so use it for this password-based
+    # run. Ubuntu 24.04 has no sudo.ws (classic sudo is /usr/bin/sudo), hence
+    # the check. Later runs use the automation account with NOPASSWD.
+    - name: Is the classic sudo installed as sudo.ws
+      ansible.builtin.command: sh -c 'command -v sudo.ws'
+      become: false
+      register: _bootstrap_sudo_ws
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Use sudo.ws for privilege escalation when present
+      ansible.builtin.set_fact:
+        ansible_become_exe: sudo.ws
+      when: _bootstrap_sudo_ws.rc == 0
   tasks:
     - name: Create the automation account from the role
       ansible.builtin.include_role:

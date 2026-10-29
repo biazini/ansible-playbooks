@@ -1,0 +1,44 @@
+---
+# yamllint disable rule:commas
+# ---------------------------------------------------------------------------
+# Site values for Ubuntu VMs on VMware. Every other tunable and its default is
+# documented in roles/cis_l1_baseline/defaults/main.yml.
+# The placeholders below make the run fail on purpose until they are replaced:
+# the key is not a valid SSH key and 192.0.2.0/24 is a documentation network,
+# so the preflight refuses to apply the firewall.
+# ---------------------------------------------------------------------------
+
+# Automation account created by playbooks/bootstrap.yml. Must match the SSH
+# user of the machine credential (and remote_user in ansible.cfg).
+cis_automation_user: ansible
+cis_automation_group: automation
+cis_automation_pubkeys:
+  - "ssh-ed25519 REPLACE-WITH-THE-PUBLIC-KEY-OF-THE-ansible-ACCOUNT ansible@company"
+
+# Networks allowed to reach SSH once ufw is enabled: the Ansible controller /
+# Execution Environment, bastions, admin VPN. REPLACE.
+cis_mgmt_cidrs:
+  - 192.0.2.10/32
+
+# Egress allow-list (CIS default-deny outgoing). Restrict "to" to the internal
+# DNS, NTP, proxy and mirror addresses where possible, and add monitoring,
+# backup, EDR, syslog and Active Directory as needed.
+cis_ufw_egress_rules:
+  - { port: "53",   proto: udp, to: any, comment: "DNS" }
+  - { port: "53",   proto: tcp, to: any, comment: "DNS (TCP fallback)" }
+  - { port: "67",   proto: udp, to: any, comment: "DHCP client" }
+  - { port: "123",  proto: udp, to: any, comment: "NTP" }
+  - { port: "4460", proto: tcp, to: any, comment: "NTS-KE (chrony default on 26.04)" }
+  - { port: "443",  proto: tcp, to: any, comment: "APT over https (CIS 1.2.1.10)" }
+
+# Internal time servers (empty = Ubuntu NTS pools, needs 123/udp + 4460/tcp).
+cis_ntp_servers: []
+
+# VMware: the guest is detected from the facts. Clones customised by cloud-init
+# (VMware datasource) keep the customisation working and ssh_pwauth off.
+cis_vmware_manage_cloudinit: true
+cis_vmware_disable_tools_timesync: true
+
+# GRUB password (CIS 1.4.1, Level 1). Hash from grub-mkpasswd-pbkdf2, kept in
+# Ansible Vault. Empty = the host is not compliant and the summary warns.
+cis_grub_password_pbkdf2: ""

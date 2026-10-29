@@ -58,9 +58,9 @@
   ansible.builtin.import_tasks: misc.yml
   tags: [misc]
 
-- name: VMware / cloud-init integration
+- name: VMware guest (open-vm-tools, time sync, cloud-init)
   ansible.builtin.import_tasks: vmware.yml
-  when: cis_vmware_manage_cloudinit | bool
+  when: (cis_vmware_guest | bool) or (cis_vmware_manage_cloudinit | bool)
   tags: [vmware]
 
 - name: AIDE file integrity
