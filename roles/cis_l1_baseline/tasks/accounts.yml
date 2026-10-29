@@ -92,7 +92,9 @@
     - cis_pam_remove_nullok | bool
   register: _cis_pam_nullok
 
-- name: Accounts | Regenerate common-* without nullok
+# Not a handler: common-* must be regenerated before the su/pam_wheel change
+# below and before anything later in the play relies on the PAM stack.
+- name: Accounts | Regenerate common-* without nullok  # noqa: no-handler
   ansible.builtin.command: pam-auth-update --enable unix
   when: _cis_pam_nullok is changed
   changed_when: true

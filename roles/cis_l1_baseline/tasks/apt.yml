@@ -94,10 +94,12 @@
            + (['/etc/apt/sources.list'] if _cis_apt_legacy.stat.exists else []) }}
       register: _cis_apt_https
 
-    - name: APT | Repositories still reachable over https
-      ansible.builtin.command: apt-get update -o Acquire::Retries=1
+    # Not a handler: it must run inside this block so a failure reaches the
+    # rescue below and the previous repository files are put back.
+    - name: APT | Repositories still reachable over https  # noqa: no-handler
+      ansible.builtin.apt:
+        update_cache: true
       when: _cis_apt_https is changed
-      changed_when: false
 
     # Backups end in "~", which APT ignores silently; remove them anyway.
     - name: APT | Remove the backups after a successful update
